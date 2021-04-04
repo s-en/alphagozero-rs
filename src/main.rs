@@ -16,8 +16,10 @@ fn main() {
   let v = board.valid_moves(b);
   println!("{}", v);
 
-  let b = Stones::new64(0b0000000_1111111_111, 0b1111_1111111_1111111_1111111_1111110);
+  let b = Stones::new64(0b0000000_1111111_1111111_1111111_1111111_1111111_1111110);
   println!("{}", b + 1);
+
+  let mcts = MCTS::new(BoardSize::S5);
 }
 // fn main() {
 //   let mut board = board::Board::new(board::BoardSize::S5);

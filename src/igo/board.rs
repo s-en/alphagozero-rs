@@ -1,6 +1,10 @@
 use super::*;
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+const HIST_SIZE: usize = 3;
 
 pub enum Dir {
   Left,
@@ -15,11 +19,27 @@ impl Board {
       size,
       turn: Turn::Black,
       step: 0,
+      pass_cnt: 0,
       black: Stones::new(size),
       white: Stones::new(size),
-      history_black: [Stones::new(size); 3],
-      history_white: [Stones::new(size); 3],
+      history_black: [Stones::new(size); HIST_SIZE],
+      history_white: [Stones::new(size); HIST_SIZE],
     }
+  }
+  pub fn calc_hash(&self) -> u64 {
+    let mut s = DefaultHasher::new();
+    self.hash(&mut s);
+    s.finish()
+  }
+  pub fn calc_hash_action(&self, action: usize) -> u64 {
+    let mut s = DefaultHasher::new();
+    self.hash(&mut s);
+    s.write_u32(action as u32);
+    s.finish()
+  }
+  pub fn action_size(&self) -> usize {
+    let s = self.size as usize;
+    s * s + 1
   }
   fn stones(&self, color: Turn) -> Stones {
     match color {
@@ -62,18 +82,37 @@ impl Board {
         },
       BoardSize::S7 =>
         match dir {
-          Dir::Right => Stones::new64(0b1000000_1000000_100, 0b0000_1000000_1000000_1000000_1000000),
-          Dir::Left  => Stones::new64(0b0000001_0000001_000, 0b0001_0000001_0000001_0000001_0000001),
-          Dir::Down  => Stones::new64(0b1111111_1111111_111, 0b1111_1111111_1111111_1111111_0000000),
-          Dir::Up    => Stones::new64(0b0000000_1111111_111, 0b1111_1111111_1111111_1111111_1111111),
+          Dir::Right => Stones::new64(0b1000000_1000000_1000000_1000000_1000000_1000000_1000000),
+          Dir::Left  => Stones::new64(0b0000001_0000001_0000001_0000001_0000001_0000001_0000001),
+          Dir::Down  => Stones::new64(0b1111111_1111111_1111111_1111111_1111111_1111111_0000000),
+          Dir::Up    => Stones::new64(0b0000000_1111111_1111111_1111111_1111111_1111111_1111111),
+        }
+      BoardSize::S9 =>
+        match dir {
+          Dir::Right => Stones::new128(0b100000000_100000000_100000000_100000000_100000000_100000000_100000000_100000000_100000000),
+          Dir::Left  => Stones::new128(0b000000001_000000001_000000001_000000001_000000001_000000001_000000001_000000001_000000001),
+          Dir::Down  => Stones::new128(0b111111111_111111111_111111111_111111111_111111111_111111111_111111111_111111111_000000000),
+          Dir::Up    => Stones::new128(0b000000000_111111111_111111111_111111111_111111111_111111111_111111111_111111111_111111111),
         }
     }
   }
   fn mask(&self, stone: Stones) -> Stones {
     match self.size {
       BoardSize::S5 => stone & 0b11111_11111_11111_11111_11111,
-      BoardSize::S7 => stone & Stones::new64(0b1111111_1111111_111, 0b1111_1111111_1111111_1111111_1111111)
+      BoardSize::S7 => stone & Stones::new64(0b1111111_1111111_1111111_1111111_1111111_1111111_1111111),
+      BoardSize::S9 => stone & Stones::new128(0b111111111_111111111_111111111_111111111_111111111_111111111_111111111_111111111_111111111),
     }
+  }
+  pub fn vec_valid_moves(&self, color: Turn) -> Vec<bool> {
+    let stones = self.valid_moves(color);
+    let amax = self.action_size() - 1;
+    let mut res: Vec<bool> = Vec::new();
+    for i in 0..amax {
+      if stones >> i & 1 == 1 { res[i] = true; }
+      else { res[i] = false; }
+    }
+    res[amax] = true; // pass
+    res
   }
   pub fn valid_moves(&self, color: Turn) -> Stones {
     let s = self.size as usize;
@@ -111,6 +150,16 @@ impl Board {
     let valids = (kuten & !surround_kuten) | dbeside;
     valids
   }
+  pub fn count_diff(&self) -> i32 {
+    let b: i32 = self.black.count_ones() as i32;
+    let w: i32 = self.white.count_ones() as i32;
+    b - w
+  }
+  pub fn game_ended(&self) -> i8 {
+    if self.pass_cnt < 2 { return 0; }
+    if self.count_diff() > 0 { return 1; }
+    return -1;
+  }
   pub fn action_xy(&mut self, x: u32, y: u32, turn: Turn) {
     let mov = x + (y - 1) * self.size as u32;
     self.action(mov, turn);
@@ -118,13 +167,15 @@ impl Board {
   pub fn action(&mut self, mov: u32, turn: Turn) {
     self.step += 1;
     if mov == self.size as u32 { // pass
-      self.turn = self.turn.rev();
+      self.turn = turn.rev();
+      self.pass_cnt += 1;
       return;
     }
-    self.history_black[2] = self.history_black[1];
-    self.history_white[2] = self.history_white[1];
-    self.history_black[1] = self.history_black[0];
-    self.history_white[1] = self.history_white[0];
+    self.pass_cnt = 0;
+    for i in (1..3).rev() {
+      self.history_black[i] = self.history_black[i-1];
+      self.history_white[i] = self.history_white[i-1];
+    }
     self.history_black[0] = self.black;
     self.history_white[0] = self.white;
     let stones = self.stones(turn);
@@ -134,7 +185,7 @@ impl Board {
     self.remove_death_stones(turn.rev());
     // remove my color
     self.remove_death_stones(turn);
-    self.turn = self.turn.rev();
+    self.turn = turn.rev();
   }
   pub fn remove_death_stones(&mut self, color: Turn) {
     let stones = self.stones(color);
@@ -164,6 +215,22 @@ impl Board {
       );
     }
     death
+  }
+  pub fn rev(&mut self) -> Board{
+    self.turn = self.turn.rev();
+    self.black = self.black ^ self.white;
+    self.white = self.black ^ self.white;
+    self.black = self.black ^ self.white;
+    for i in 0..HIST_SIZE {
+      self.history_black[i] = self.history_black[i] ^ self.history_white[i];
+      self.history_white[i] = self.history_black[i] ^ self.history_white[i];
+      self.history_black[i] = self.history_black[i] ^ self.history_white[i];
+    }
+    *self
+  }
+  pub fn next_state(&mut self, mov: u32) -> Board {
+    self.action(mov, Turn::Black);
+    self.clone().rev()
   }
 }
 
