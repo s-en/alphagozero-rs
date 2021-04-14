@@ -1,0 +1,16 @@
+[package]
+name = "az_train"
+version = "0.1.0"
+authors = ["s-en <sen@nemusoft.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[profile.release]
+lto = true
+
+[dependencies]
+tch = "0.4.0"
+anyhow = "1.0"
+tqdm-rs = "0.1.0"
+rand = { version = "0.6.5", features = ["wasm-bindgen"] }
