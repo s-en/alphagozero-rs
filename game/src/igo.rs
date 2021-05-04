@@ -33,20 +33,19 @@ pub enum Stones {
 
 #[derive(Hash, Eq, PartialEq, Clone)]
 pub struct Board {
-  size: BoardSize,
-  turn: Turn,
-  pass_cnt: u32,
-  step: u32,
-  black: Stones,
-  white: Stones,
-  history_black: [Stones; 3],
-  history_white: [Stones; 3],
+  pub size: BoardSize,
+  pub turn: Turn,
+  pub pass_cnt: u32,
+  pub step: u32,
+  pub black: Stones,
+  pub white: Stones,
+  pub history_black: [Stones; 5],
+  pub history_white: [Stones; 5],
 }
 
 pub struct MCTS {
   sim_num: u32,
   cpuct: f32,
-  board: Board,
   qsa: HashMap<(u64, usize), f32>, // Q values
   nsa: HashMap<(u64, usize), u32>, // edge visited times
   ns: HashMap<u64, u32>, // board visited times

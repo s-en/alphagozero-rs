@@ -1,6 +1,7 @@
 use super::*;
-use tch::{nn, Tensor, Device, nn::OptimizerConfig, no_grad};
+use tch::{nn, Tensor, Device, nn::OptimizerConfig, no_grad, Kind, TchError};
 use anyhow::Result;
+use indicatif::ProgressIterator;
 use rand::prelude::*;
 
 fn randint(max: usize, size: usize) -> Vec<usize> {
@@ -24,16 +25,23 @@ pub fn randfloat(max: usize, size: usize) -> Vec<f32> {
 }
 
 impl NNet {
-  pub fn new(root: &nn::Path, board_size: i64, action_size: i64, num_channels: i64) -> NNet {
+  pub fn new(board_size: i64, action_size: i64, num_channels: i64) -> NNet {
     let conv2d_cfg = nn::ConvConfig {
       stride: 1,
       padding: 1,
       ..Default::default()
     };
-    let conv1 = nn::conv2d(root, 2, num_channels, 3, conv2d_cfg);
+    let conv2d_cfg_after = nn::ConvConfig {
+      stride: 1,
+      padding: 0,
+      ..Default::default()
+    };
+    let vs = nn::VarStore::new(Device::Cpu);
+    let root = &vs.root();
+    let conv1 = nn::conv2d(root, 3, num_channels, 3, conv2d_cfg);
     let conv2 = nn::conv2d(root, num_channels, num_channels, 3, conv2d_cfg);
-    let conv3 = nn::conv2d(root, num_channels, num_channels, 3, conv2d_cfg);
-    let conv4 = nn::conv2d(root, num_channels, num_channels, 3, conv2d_cfg);
+    let conv3 = nn::conv2d(root, num_channels, num_channels, 3, conv2d_cfg_after);
+    let conv4 = nn::conv2d(root, num_channels, num_channels, 3, conv2d_cfg_after);
     let bn1 = nn::batch_norm2d(root, num_channels, Default::default());
     let bn2 = nn::batch_norm2d(root, num_channels, Default::default());
     let bn3 = nn::batch_norm2d(root, num_channels, Default::default());
@@ -48,6 +56,7 @@ impl NNet {
       board_size,
       action_size,
       num_channels,
+      vs,
       conv1,
       conv2,
       conv3,
@@ -65,7 +74,7 @@ impl NNet {
     }
   }
   pub fn forward(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor) {
-    let s= xs.view([-1, 2, self.board_size, self.board_size])
+    let s= xs.view([-1, 3, self.board_size, self.board_size])
         .apply(&self.conv1).apply_t(&self.bn1, train).relu()
         .apply(&self.conv2).apply_t(&self.bn2, train).relu()
         .apply(&self.conv3).apply_t(&self.bn3, train).relu()
@@ -75,17 +84,17 @@ impl NNet {
         .apply(&self.fc2).apply_t(&self.fc_bn2, train).relu().dropout_(0.3, train);
     let pi = s.apply(&self.fc3);
     let v = s.apply(&self.fc4);
-    (pi, v)
+    (pi.log_softmax(1, Kind::Float), v.tanh())
   }
-  pub fn predict(&self, board: Vec<f32>) -> (Vec<f32>, i8) {
+  pub fn predict(net: &NNet, board: Vec<f32>) -> (Vec<f32>, i8) {
     let b = Tensor::of_slice(&board);
-    self.predict_tensor(b)
+    net.predict_tensor(b)
   }
   pub fn predict_tensor(&self, board: Tensor) -> (Vec<f32>, i8) {
     // todo cuda
-    let b = board.view([1, self.board_size, self.board_size]);
-    let mut pi: Tensor = Tensor::zeros(&[self.board_size*self.board_size*2], tch::kind::FLOAT_CPU);
-    let mut v: Tensor = Tensor::zeros(&[1], tch::kind::FLOAT_CPU);
+    let b = board.view([3, self.board_size, self.board_size]);
+    let mut pi: Tensor = Tensor::zeros(&[1, self.board_size*self.board_size+1], tch::kind::FLOAT_CPU);
+    let mut v: Tensor = Tensor::zeros(&[1, 1], tch::kind::FLOAT_CPU);
     no_grad(|| {
       let (pis, vs) = self.forward(&b, false);
       pi += pis;
@@ -95,21 +104,19 @@ impl NNet {
     let r2 = i8::from(v);
     (r1, r2)
   }
-  pub fn train(&self, examples: Vec<Example>) -> Result<()> {
+  pub fn train(&self, examples: Vec<&Example>) -> Result<()> {
     // examples: list of examples, each example is of form (board, pi, v)
-    let vs = nn::VarStore::new(Device::Cpu);
-    let mut optimizer = nn::Adam::default().build(&vs, 1e-3)?;
-    let epochs = 5;
-    let batch_size = 16;
-    for epoch in 0..epochs {
-      println!("EPOCH ::: {}", (epoch + 1));
-      for _ in tqdm_rs::Tqdm::new(0..10) {
-        tqdm_rs::write("Doing some work...\nOn multiple lines!");
+    let mut optimizer = nn::Adam::default().build(&self.vs, 1e-3)?;
+    let epochs = 20;
+    let batch_size = 32;
+    println!("start train");
+    for _ in (0..epochs).progress() {
+      for _ in (0..10).progress() {
         let sample_ids = randint(examples.len(), batch_size);
-        let ex: Vec<&Example> = examples.iter().enumerate().filter(|(i, _)| sample_ids.contains(i)).map(|(_, e)| e).collect();
+        let ex: Vec<&Example> = examples.iter().enumerate().filter(|(i, _)| sample_ids.contains(i)).map(|(_, e)| *e).collect();
         let boards = Tensor::of_slice2(&ex.iter().map(|x| &x.board).collect::<Vec<&Vec<f32>>>());
         let target_pis = Tensor::of_slice2(&ex.iter().map(|x| &x.pi).collect::<Vec<&Vec<f32>>>());
-        let target_vs = Tensor::of_slice2(&ex.iter().map(|x| &x.v).collect::<Vec<&Vec<f32>>>());
+        let target_vs = Tensor::of_slice(&ex.iter().map(|x| x.v).collect::<Vec<f32>>());
         // todo cuda
 
         // compute output
@@ -124,5 +131,11 @@ impl NNet {
       }
     }
     Ok(())
+  }
+  pub fn save<T: AsRef<std::path::Path>>(&self, path: T) -> Result<(), TchError> {
+    self.vs.save(path)
+  }
+  pub fn load<T: AsRef<std::path::Path>>(&mut self, path: T) -> Result<(), TchError> {
+    self.vs.load(path)
   }
 }

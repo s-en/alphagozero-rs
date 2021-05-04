@@ -12,5 +12,8 @@ lto = true
 [dependencies]
 tch = "0.4.0"
 anyhow = "1.0"
-tqdm-rs = "0.1.0"
+indicatif = "0.16.0"
 rand = { version = "0.6.5", features = ["wasm-bindgen"] }
+savefile="0.7"
+savefile-derive="0.7"
+az_game = { path = "../game" }

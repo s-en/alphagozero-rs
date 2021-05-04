@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-const HIST_SIZE: usize = 3;
+const HIST_SIZE: usize = 5;
 
 pub enum Dir {
   Left,
@@ -25,6 +25,9 @@ impl Board {
       history_black: [Stones::new(size); HIST_SIZE],
       history_white: [Stones::new(size); HIST_SIZE],
     }
+  }
+  pub fn size(&self) -> u32 {
+    self.size as u32
   }
   pub fn calc_hash(&self) -> u64 {
     let mut s = DefaultHasher::new();
@@ -53,13 +56,13 @@ impl Board {
       Turn::White => self.black
     }
   }
-  fn history(&self, color: Turn) -> [Stones; 3] {
+  fn history(&self, color: Turn) -> [Stones; HIST_SIZE] {
     match color {
       Turn::Black => self.history_black,
       Turn::White => self.history_white
     }
   }
-  fn opp_history(&self, color: Turn) -> [Stones; 3] {
+  fn opp_history(&self, color: Turn) -> [Stones; HIST_SIZE] {
     match color {
       Turn::Black => self.history_white,
       Turn::White => self.history_black
@@ -106,7 +109,7 @@ impl Board {
   pub fn vec_valid_moves(&self, color: Turn) -> Vec<bool> {
     let stones = self.valid_moves(color);
     let amax = self.action_size() - 1;
-    let mut res: Vec<bool> = Vec::new();
+    let mut res: Vec<bool> = vec![false; self.action_size()];
     for i in 0..amax {
       if stones >> i & 1 == 1 { res[i] = true; }
       else { res[i] = false; }
@@ -156,17 +159,20 @@ impl Board {
     b - w
   }
   pub fn game_ended(&self) -> i8 {
-    if self.pass_cnt < 2 { return 0; }
+    let s = self.size().pow(2);
+    if self.pass_cnt < 2 && self.step < s * 2 {
+      return 0;
+    }
     if self.count_diff() > 0 { return 1; }
     return -1;
   }
   pub fn action_xy(&mut self, x: u32, y: u32, turn: Turn) {
-    let mov = x + (y - 1) * self.size as u32;
+    let mov = (x - 1) + (y - 1) * self.size as u32;
     self.action(mov, turn);
   }
   pub fn action(&mut self, mov: u32, turn: Turn) {
     self.step += 1;
-    if mov == self.size as u32 { // pass
+    if mov == self.action_size() as u32 - 1 { // pass
       self.turn = turn.rev();
       self.pass_cnt += 1;
       return;
@@ -180,7 +186,7 @@ impl Board {
     self.history_white[0] = self.white;
     let stones = self.stones(turn);
     // hit stone
-    self.set_stones(turn, stones | 1 << (mov - 1));
+    self.set_stones(turn, stones | 1 << mov);
     // remove opp color
     self.remove_death_stones(turn.rev());
     // remove my color
@@ -234,8 +240,11 @@ impl Board {
     new_board
   }
   // input style for nnet
-  pub fn input(&self, rot_t: i64, flip: bool) -> Vec<f32> {
-    let mut vec: Vec<f32> = self.black.vec();
+  pub fn input(&self) -> Vec<f32> {
+    let color = self.turn as i32 as f32;
+    let s = self.size() as usize;
+    let mut vec: Vec<f32> = vec![color; s.pow(2)];
+    vec.append(&mut self.black.vec());
     vec.append(&mut self.white.vec());
     vec
   }
@@ -244,24 +253,85 @@ impl Board {
     if turn == Turn::White { board.rev(); }
     board
   }
-  // pub fn symmetries(&self, pi: Vec<f32>) -> (Vec<f32>, Vec<f32>) {
-  //   let n = self.size as i64;
-  //   let pi_board = Tensor::of_slice(&pi).reshape(&[n, n]);
-  //   let b: Vec<Tensor> = vec![];
-  //   let p: Vec<Tensor> = vec![];
+  pub fn flip_diag(&mut self) -> &mut Board {
+    self.black = self.black.flip_diag();
+    self.white = self.white.flip_diag();
+    for i in 1..3 {
+      self.history_black[i] = self.history_black[i-1].flip_diag();
+      self.history_white[i] = self.history_white[i-1].flip_diag();
+    }
+    self
+  }
+  pub fn flip_vert(&mut self) -> &mut Board {
+    self.black = self.black.flip_vert();
+    self.white = self.white.flip_vert();
+    for i in 1..3 {
+      self.history_black[i] = self.history_black[i-1].flip_vert();
+      self.history_white[i] = self.history_white[i-1].flip_vert();
+    }
+    self
+  }
+  pub fn flip_diag_pi(&self, pi: &Vec<f32>) -> Vec<f32> {
+    let s = self.size as usize;
+    let mut idxs = Vec::new();
+    for i in 0..s {
+      let mut row: Vec<usize> = (0..s*s-i).rev().step_by(s).collect();
+      idxs.append(&mut row);
+    }
+    idxs.iter().map(|i| pi[*i]).collect()
+  }
+  pub fn flip_vert_pi(&self, pi: &Vec<f32>) -> Vec<f32> {
+    let s = self.size as usize;
+    let mut res = Vec::new();
+    for chunk in pi.chunks(s).rev() {
+      res.extend_from_slice(chunk);
+    }
+    res
+  }
+  pub fn symmetries(&self, pi: Vec<f32>) -> Vec<(Vec<f32>, Vec<f32>)> {
+    let mut f1 = self.clone();
+    let mut f2 = self.clone();
+    let fd = f1.flip_diag().input();
+    let fv = f2.flip_vert().input();
+    let fdv = f1.flip_vert().input();
+    let fvd = f2.flip_diag().input();
+    let fdvd = f1.flip_diag().input();
+    let fvdv = f2.flip_vert().input();
+    let fvdvd = f2.flip_diag().input();
 
-  //   for i in 1..5 {
-  //     for j in &[true, false] {
-  //       let newB = board.rot90(i, &[0, 1]);
-  //       let newPi = pi_board.rot90(i, &[0, 1]);
-  //       if j:
-  //           newB = np.fliplr(newB)
-  //           newPi = np.fliplr(newPi)
-  //       l += [(newB, list(newPi.ravel()) + [pi[-1]])]
-  //     }
-  //   }
-  //   (b, p)
-  // }
+    assert!(pi.len() == self.action_size());
+    let mut p = pi.clone();
+    let pass = match p.pop() {
+      Some(x) => x,
+      None => 0.0
+    };
+    let mut pfd = self.flip_diag_pi(&p);
+    let mut pfv = self.flip_vert_pi(&p);
+    let mut pfdv = self.flip_vert_pi(&pfd);
+    let mut pfvd = self.flip_diag_pi(&pfv);
+    let mut pfdvd = self.flip_diag_pi(&pfdv);
+    let mut pfvdv = self.flip_vert_pi(&pfvd);
+    let mut pfvdvd = self.flip_diag_pi(&pfvdv);
+    p.push(pass);
+    pfd.push(pass);
+    pfv.push(pass);
+    pfdv.push(pass);
+    pfvd.push(pass);
+    pfdvd.push(pass);
+    pfvdv.push(pass);
+    pfvdvd.push(pass);
+    
+    vec![
+      (self.input(), pi),
+      (fd, pfd),
+      (fv, pfv),
+      (fdv, pfdv),
+      (fvd, pfvd),
+      (fdvd, pfdvd),
+      (fvdv, pfvdv),
+      (fvdvd, pfvdvd),
+    ]
+  }
 }
 
 impl Display for Board {

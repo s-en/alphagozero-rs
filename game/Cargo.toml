@@ -4,14 +4,8 @@ version = "0.1.0"
 authors = ["s-en <sen@nemusoft.com>"]
 edition = "2018"
 
-[lib]
-name = "az_game"
-path = "src/test.rs"
-crate-type=["cdylib"]
-
 [profile.release]
 lto = true
 
 [dependencies]
 auto_ops = "0.3.0"
-rand = { version = "0.6.5", features = ["wasm-bindgen"] }
