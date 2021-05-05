@@ -230,18 +230,21 @@ impl Board {
   pub fn action(&mut self, mov: u32, turn: Turn) {
     self.step += 1;
     self.kifu.push((mov + 1) as i32 * self.turn as i32);
-    if mov == self.action_size() as u32 - 1 { // pass
-      self.turn = turn.rev();
-      self.pass_cnt += 1;
-      return;
-    }
-    self.pass_cnt = 0;
+    
     for i in (1..3).rev() {
       self.history_black[i] = self.history_black[i-1];
       self.history_white[i] = self.history_white[i-1];
     }
     self.history_black[0] = self.black;
     self.history_white[0] = self.white;
+
+    if mov == self.action_size() as u32 - 1 { // pass
+      self.turn = turn.rev();
+      self.pass_cnt += 1;
+      return;
+    }
+    self.pass_cnt = 0;
+
     let stones = self.stones(turn);
     // hit stone
     self.set_stones(turn, stones | 1 << mov);
@@ -318,18 +321,18 @@ impl Board {
   pub fn flip_diag(&mut self) -> &mut Board {
     self.black = self.black.flip_diag();
     self.white = self.white.flip_diag();
-    for i in 1..3 {
-      self.history_black[i] = self.history_black[i-1].flip_diag();
-      self.history_white[i] = self.history_white[i-1].flip_diag();
+    for i in 0..3 {
+      self.history_black[i] = self.history_black[i].flip_diag();
+      self.history_white[i] = self.history_white[i].flip_diag();
     }
     self
   }
   pub fn flip_vert(&mut self) -> &mut Board {
     self.black = self.black.flip_vert();
     self.white = self.white.flip_vert();
-    for i in 1..3 {
-      self.history_black[i] = self.history_black[i-1].flip_vert();
-      self.history_white[i] = self.history_white[i-1].flip_vert();
+    for i in 0..3 {
+      self.history_black[i] = self.history_black[i].flip_vert();
+      self.history_white[i] = self.history_white[i].flip_vert();
     }
     self
   }
