@@ -2,11 +2,9 @@ use super::*;
 use tch::{nn, Tensor, Device, nn::OptimizerConfig, no_grad, Kind, TchError};
 use anyhow::Result;
 use indicatif::ProgressIterator;
-use rand::prelude::*;
 
-fn randint(max: usize, size: usize) -> Vec<usize> {
+fn randint(max: usize, size: usize, rng: &mut rand::rngs::StdRng) -> Vec<usize> {
   let mut vec: Vec<usize> = Vec::with_capacity(size);
-  let mut rng = rand::thread_rng();
   for _ in 0..size {
     let rnd: f32 = rng.gen();
     vec.push((rnd * max as f32) as usize);
@@ -14,9 +12,8 @@ fn randint(max: usize, size: usize) -> Vec<usize> {
   vec
 }
 
-pub fn randfloat(max: usize, size: usize) -> Vec<f32> {
+pub fn randfloat(max: usize, size: usize, rng: &mut rand::rngs::StdRng) -> Vec<f32> {
   let mut vec: Vec<f32> = Vec::with_capacity(size);
-  let mut rng = rand::thread_rng();
   for _ in 0..size {
     let rnd: f32 = rng.gen();
     vec.push(rnd * max as f32);
@@ -38,7 +35,7 @@ impl NNet {
     };
     let vs = nn::VarStore::new(Device::Cpu);
     let root = &vs.root();
-    let conv1 = nn::conv2d(root, 3, num_channels, 3, conv2d_cfg);
+    let conv1 = nn::conv2d(root, 9, num_channels, 3, conv2d_cfg);
     let conv2 = nn::conv2d(root, num_channels, num_channels, 3, conv2d_cfg);
     let conv3 = nn::conv2d(root, num_channels, num_channels, 3, conv2d_cfg_after);
     let conv4 = nn::conv2d(root, num_channels, num_channels, 3, conv2d_cfg_after);
@@ -74,7 +71,7 @@ impl NNet {
     }
   }
   pub fn forward(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor) {
-    let s= xs.view([-1, 3, self.board_size, self.board_size])
+    let s= xs.view([-1, 9, self.board_size, self.board_size])
         .apply(&self.conv1).apply_t(&self.bn1, train).relu()
         .apply(&self.conv2).apply_t(&self.bn2, train).relu()
         .apply(&self.conv3).apply_t(&self.bn3, train).relu()
@@ -86,13 +83,13 @@ impl NNet {
     let v = s.apply(&self.fc4);
     (pi.log_softmax(1, Kind::Float), v.tanh())
   }
-  pub fn predict(net: &NNet, board: Vec<f32>) -> (Vec<f32>, i8) {
+  pub fn predict(net: &NNet, board: Vec<f32>) -> (Vec<f32>, f32) {
     let b = Tensor::of_slice(&board);
     net.predict_tensor(b)
   }
-  pub fn predict_tensor(&self, board: Tensor) -> (Vec<f32>, i8) {
+  pub fn predict_tensor(&self, board: Tensor) -> (Vec<f32>, f32) {
     // todo cuda
-    let b = board.view([3, self.board_size, self.board_size]);
+    let b = board.view([9, self.board_size, self.board_size]);
     let mut pi: Tensor = Tensor::zeros(&[1, self.board_size*self.board_size+1], tch::kind::FLOAT_CPU);
     let mut v: Tensor = Tensor::zeros(&[1, 1], tch::kind::FLOAT_CPU);
     no_grad(|| {
@@ -101,18 +98,20 @@ impl NNet {
       v += vs;
     });
     let r1 = Vec::<f32>::from(pi.exp());
-    let r2 = i8::from(v);
+    let r2 = v.double_value(&[0, 0]) as f32;
     (r1, r2)
   }
   pub fn train(&self, examples: Vec<&Example>) -> Result<()> {
     // examples: list of examples, each example is of form (board, pi, v)
+    tch::manual_seed(42);
     let mut optimizer = nn::Adam::default().build(&self.vs, 1e-3)?;
-    let epochs = 20;
+    let epochs = 100;
     let batch_size = 32;
     println!("start train");
+    let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_seed([42; 32]);
     for _ in (0..epochs).progress() {
       for _ in (0..10).progress() {
-        let sample_ids = randint(examples.len(), batch_size);
+        let sample_ids = randint(examples.len(), batch_size, &mut rng);
         let ex: Vec<&Example> = examples.iter().enumerate().filter(|(i, _)| sample_ids.contains(i)).map(|(_, e)| *e).collect();
         let boards = Tensor::of_slice2(&ex.iter().map(|x| &x.board).collect::<Vec<&Vec<f32>>>());
         let target_pis = Tensor::of_slice2(&ex.iter().map(|x| &x.pi).collect::<Vec<&Vec<f32>>>());

@@ -5,6 +5,9 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 const HIST_SIZE: usize = 5;
+const KIFU_TABLE: [char; 20] = [
+  'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t'
+];
 
 pub enum Dir {
   Left,
@@ -24,10 +27,19 @@ impl Board {
       white: Stones::new(size),
       history_black: [Stones::new(size); HIST_SIZE],
       history_white: [Stones::new(size); HIST_SIZE],
+      kifu: Vec::new()
     }
   }
   pub fn size(&self) -> u32 {
     self.size as u32
+  }
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    self.black.hash(state);
+    self.white.hash(state);
+    self.history_black.hash(state);
+    self.history_white.hash(state);
+    self.pass_cnt.hash(state);
+    self.turn.hash(state);
   }
   pub fn calc_hash(&self) -> u64 {
     let mut s = DefaultHasher::new();
@@ -110,11 +122,17 @@ impl Board {
     let stones = self.valid_moves(color);
     let amax = self.action_size() - 1;
     let mut res: Vec<bool> = vec![false; self.action_size()];
+    let mut true_cnt = 0;
     for i in 0..amax {
-      if stones >> i & 1 == 1 { res[i] = true; }
-      else { res[i] = false; }
+      let key = stones >> i & 1 == 1;
+      res[i] = key;
+      if key {
+        true_cnt += 1;
+      }
     }
-    res[amax] = true; // pass
+    if true_cnt == 0 {
+      res[amax] = true; // pass
+    }
     res
   }
   pub fn valid_moves(&self, color: Turn) -> Stones {
@@ -125,17 +143,18 @@ impl Board {
     let hist = self.history(color);
     let opp_hist = self.opp_history(color);
     let kuten = self.mask(!bw);
-    let surround_kuten = kuten & (
+    let op_surround_kuten = kuten & (
       (op >> 1 | self.edge(Dir::Right)) &
       (op << 1 | self.edge(Dir::Left)) &
       (op >> s | self.edge(Dir::Down)) &
       (op << s | self.edge(Dir::Up)));
-    // try adding surrounded stones
-    let mut st_try = surround_kuten;
+    // ignore suicide
+    let mut st_try = op_surround_kuten;
     let mut dstone = Stones::new(self.size);
     while st_try != 0 {
+      // try adding stone where surrounded by opponent stones
       let rbit = st_try & ((!st_try) + 1);
-      st_try = st_try ^ rbit; // remove most right bit
+      st_try = st_try ^ rbit; // remove right end bit
       let new_try = st | rbit;
       let ds = self.death_stones(op, new_try);
       if hist.contains(&new_try) && opp_hist.contains(&(op ^ ds)) {
@@ -145,12 +164,30 @@ impl Board {
       dstone = dstone | ds;
     }
     // valid if any of the beside stone died
-    let dbeside = surround_kuten & (
+    let dbeside = op_surround_kuten & (
       (dstone >> 1 & !self.edge(Dir::Right)) |
       (dstone << 1 & !self.edge(Dir::Left)) |
       (dstone >> s & !self.edge(Dir::Down)) |
       (dstone << s & !self.edge(Dir::Up)));
-    let valids = (kuten & !surround_kuten) | dbeside;
+    // ignore disabling own eye
+    let mut self_surround_kuten = kuten & (
+      (st >> 1 | self.edge(Dir::Right)) &
+      (st << 1 | self.edge(Dir::Left)) &
+      (st >> s | self.edge(Dir::Down)) &
+      (st << s | self.edge(Dir::Up)));
+    // disabling own eye is allowed when own stone possibly die
+    st_try = self_surround_kuten;
+    while st_try != 0 {
+      // try adding opponent stone where surrounded by own stones
+      let rbit = st_try & ((!st_try) + 1);
+      st_try = st_try ^ rbit; // remove right end bit
+      let new_try = op | rbit;
+      let ds = self.death_stones(st, new_try);
+      if ds != 0 {
+        self_surround_kuten = self_surround_kuten ^ rbit;
+      }
+    }
+    let valids = (kuten & !op_surround_kuten & !self_surround_kuten) | dbeside;
     valids
   }
   pub fn count_diff(&self) -> i32 {
@@ -166,12 +203,33 @@ impl Board {
     if self.count_diff() > 0 { return 1; }
     return -1;
   }
+  pub fn get_kifu_sgf(&self) -> String {
+    let mut kifu = "(;GM[1]SZ[5];".to_string();
+    let s = self.size as usize;
+    for &k in &self.kifu {
+      let mut turn = 0;
+      if k > 0 { turn = 1; }
+      let n = k.abs() as usize - 1;
+      let mut x = n % s;
+      let mut y = n / s;
+      if y == s { // pass
+        x = 19;
+        y = 19;
+      }
+      let code = format!("{}[{}{}]", ['W', 'B'][turn], KIFU_TABLE[x], KIFU_TABLE[y]);
+      kifu.push_str(&code);
+      kifu.push_str(";");
+    }
+    kifu.push_str(")");
+    kifu
+  }
   pub fn action_xy(&mut self, x: u32, y: u32, turn: Turn) {
     let mov = (x - 1) + (y - 1) * self.size as u32;
     self.action(mov, turn);
   }
   pub fn action(&mut self, mov: u32, turn: Turn) {
     self.step += 1;
+    self.kifu.push((mov + 1) as i32 * self.turn as i32);
     if mov == self.action_size() as u32 - 1 { // pass
       self.turn = turn.rev();
       self.pass_cnt += 1;
@@ -246,6 +304,10 @@ impl Board {
     let mut vec: Vec<f32> = vec![color; s.pow(2)];
     vec.append(&mut self.black.vec());
     vec.append(&mut self.white.vec());
+    for i in 0..3 {
+      vec.append(&mut self.history_black[i].vec());
+      vec.append(&mut self.history_white[i].vec());
+    }
     vec
   }
   pub fn canonical_form(&self, turn: Turn) -> Board {

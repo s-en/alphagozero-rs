@@ -14,10 +14,9 @@ pub fn max_idx(vals: &Vec<f32>) -> usize {
 }
 
 impl MCTS {
-  pub fn new(action_size: i64) -> MCTS {
-    let num_channels: i64 = 32;
+  pub fn new(sim_num: u32) -> MCTS {
     MCTS {
-      sim_num: 10,
+      sim_num: sim_num,
       cpuct: 1.0,
       qsa: HashMap::new(), // Q values
       nsa: HashMap::new(), // edge visited times
@@ -29,8 +28,8 @@ impl MCTS {
       cache_hit_cnt: 0
     }
   }
-  pub fn get_action_prob<F: Fn(Vec<f32>) -> (Vec<f32>, i8)>(&mut self, c_board: &Board, temp: f32, predict: &F) -> Vec<f32> {
-    for _ in 0..self.sim_num {
+  pub fn get_action_prob<F: Fn(Vec<f32>) -> (Vec<f32>, f32)>(&mut self, c_board: &Board, temp: f32, predict: &F) -> Vec<f32> {
+    for i in 0..self.sim_num {
       let mut b = c_board.clone();
       self.search(&mut b, predict);
     }
@@ -55,12 +54,12 @@ impl MCTS {
     let probs: Vec<f32> = counts.iter().map(|x| x / counts_sum).collect();
     probs
   }
-  pub fn search<F: Fn(Vec<f32>) -> (Vec<f32>, i8)>(&mut self, c_board: &mut Board, predict: &F) -> i8 {
+  pub fn search<F: Fn(Vec<f32>) -> (Vec<f32>, f32)>(&mut self, c_board: &mut Board, predict: &F) -> f32 {
     let s = c_board.calc_hash();
     if !self.es.contains_key(&s) {
-      self.es.insert(s, c_board.game_ended());
+      self.es.insert(s, c_board.game_ended() as f32);
     }
-    if self.es[&s] != 0 {
+    if self.es[&s] != 0.0 {
       // terminal node
       return -self.es[&s];
     }
@@ -112,6 +111,10 @@ impl MCTS {
 
     // play one step
     c_board.action(a as u32, c_board.turn);
+    if c_board.step > 50 {
+      println!("step action {}", a);
+      println!("{}", c_board);
+    }
 
     // search until leaf node
     let v = self.search(c_board, predict);

@@ -41,6 +41,7 @@ pub struct Board {
   pub white: Stones,
   pub history_black: [Stones; 5],
   pub history_white: [Stones; 5],
+  pub kifu: Vec<i32>
 }
 
 pub struct MCTS {
@@ -50,7 +51,7 @@ pub struct MCTS {
   nsa: HashMap<(u64, usize), u32>, // edge visited times
   ns: HashMap<u64, u32>, // board visited times
   ps: HashMap<u64, Vec<f32>>, // initial policy (returned by neural net)
-  es: HashMap<u64, i8>, // game ended
+  es: HashMap<u64, f32>, // game ended
   vs: HashMap<u64, Vec<bool>>, // valid moves
   search_cnt: u32,
   cache_hit_cnt: u32,
