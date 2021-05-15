@@ -1,5 +1,5 @@
 // extern crate tch;
-use tch::{nn};
+use tch::{nn, nn::ModuleT};
 use rand::prelude::*;
 use std::collections::VecDeque;
 use az_game::igo::*;
@@ -17,20 +17,10 @@ pub struct NNet {
   action_size: i64,
   num_channels: i64,
   vs: nn::VarStore,
-  conv1: nn::Conv2D,
-  conv2: nn::Conv2D,
-  conv3: nn::Conv2D,
-  conv4: nn::Conv2D,
-  bn1: nn::BatchNorm,
-  bn2: nn::BatchNorm,
-  bn3: nn::BatchNorm,
-  bn4: nn::BatchNorm,
-  fc1: nn::Linear,
-  fc_bn1: nn::BatchNorm,
-  fc2: nn::Linear,
-  fc_bn2: nn::BatchNorm,
-  fc3: nn::Linear,
-  fc4: nn::Linear,
+  headerT: nn::SequentialT,
+  blocksT: nn::SequentialT,
+  pT: nn::SequentialT,
+  vT: nn::SequentialT,
 }
 
 pub struct Coach {
@@ -56,4 +46,107 @@ fn main() {
     rng: rand::SeedableRng::from_seed([42; 32])
   };
   coach.learn();
+}
+
+#[test]
+fn nnet_test() {
+  let board_size: i64 = 5;
+  let action_size: i64 = 26;
+  let num_channels: i64 = 32;
+  let mut net = NNet::new(board_size, action_size, num_channels);
+
+  let ex = Example {
+    board: vec![
+      1.0, 1.0, 1.0, 1.0, 1.0,
+      1.0, 1.0, 1.0, 1.0, 1.0,
+      1.0, 1.0, 1.0, 1.0, 1.0,
+      1.0, 1.0, 1.0, 1.0, 1.0,
+      1.0, 1.0, 1.0, 1.0, 1.0,
+
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+    ],
+    pi: vec![
+      1.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.
+    ],
+    v: 1.0
+  };
+  let mut board = Board::new(BoardSize::S5);
+  let pi = NNet::predict(&net, board.input());
+  println!("predict {:?}", pi);
+  let mut examples = Vec::new();
+  examples.push(&ex);
+  examples.push(&ex);
+  examples.push(&ex);
+  net.train(examples);
+
+  let pi = NNet::predict(&net, board.input());
+  println!("predict {:?}", pi);
+  let p: Vec<f32> = pi.0.iter().map(|x| x.round()).collect();
+  let v = pi.1.round();
+
+  assert_eq!(
+    p,
+    vec![
+      1.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.
+    ]
+  );
+  assert_eq!(
+    v, 1.0
+  );
 }

@@ -20,17 +20,17 @@ impl MCTS {
       cpuct: 1.0,
       qsa: HashMap::new(), // Q values
       nsa: HashMap::new(), // edge visited times
+      wsa: HashMap::new(), // win probability
       ns: HashMap::new(), // board visited times
       ps: HashMap::new(), // initial policy (returned by neural net)
       es: HashMap::new(), // game ended
       vs: HashMap::new(), // valid moves
-      search_cnt: 0,
-      cache_hit_cnt: 0
     }
   }
   pub fn get_action_prob<F: Fn(Vec<f32>) -> (Vec<f32>, f32)>(&mut self, c_board: &Board, temp: f32, predict: &F) -> Vec<f32> {
     for i in 0..self.sim_num {
       let mut b = c_board.clone();
+      //println!("sum_num: {:?}", i);
       self.search(&mut b, predict);
     }
     let amax = c_board.action_size();
@@ -43,7 +43,9 @@ impl MCTS {
       }
       counts.push(val as f32);
     }
+    //println!("counts: {:?}", counts);
     if temp == 0.0 {
+      //println!("nsa {:?}", self.nsa);
       let mut probs = vec![0.0; amax];
       let best_idx = max_idx(&counts);
       probs[best_idx] = 1.0;
@@ -61,9 +63,8 @@ impl MCTS {
     }
     if self.es[&s] != 0.0 {
       // terminal node
-      return -self.es[&s];
+      return self.es[&s];
     }
-    self.search_cnt += 1;
     if !self.ps.contains_key(&s) {
       // leaf node
       let (ps, v) = predict(c_board.input());
@@ -73,20 +74,21 @@ impl MCTS {
       if sum_ps_s > 0.0 {
         masked_valids = masked_valids.iter().map(|x| x / sum_ps_s).collect();
       } else {
-        println!("all valids moves were masked");
+        println!("all valids moves were masked {:?}", ps);
         let sum_ps_s: i32 = valids.iter().map(|&x| x as i32).sum();
         masked_valids = valids.iter().map(|&x| x as i32 as f32 / sum_ps_s as f32).collect();
       }
       self.ps.insert(s, masked_valids);
       self.vs.insert(s, valids);
       self.ns.insert(s, 0);
-      return -v;
-    } else {
-      self.cache_hit_cnt += 1;
+      return v;
     }
     let valids = &self.vs[&s];
     let mut cur_best = f32::MIN;
     let mut best_act: isize = -1;
+    // if c_board.turn == Turn::White {
+    //   cur_best = f32::MAX;
+    // }
 
     // pick best action
     let amax = c_board.action_size();
@@ -99,6 +101,14 @@ impl MCTS {
       } else {
         u = self.cpuct * self.ps[&s][a] * (self.ns[&s] as f32 + 1e-8).sqrt();
       }
+      // if c_board.turn == Turn::Black && u > cur_best {
+      //   cur_best = u;
+      //   best_act = a as isize;
+      // }
+      // if c_board.turn == Turn::White && u < cur_best {
+      //   cur_best = u;
+      //   best_act = a as isize;
+      // }
       if u > cur_best {
         cur_best = u;
         best_act = a as isize;
@@ -110,10 +120,15 @@ impl MCTS {
     let a = a as usize;
 
     // play one step
+    let turn = c_board.turn as i32 as f32;
     c_board.action(a as u32, c_board.turn);
+
+    // maximum step
     if c_board.step > 50 {
       println!("step action {}", a);
+      println!("{:?}", c_board.get_kifu_sgf());
       println!("{}", c_board);
+      return 0.0;
     }
 
     // search until leaf node
@@ -121,15 +136,20 @@ impl MCTS {
 
     // move back up the tree
     let sa = (s, a);
-    if self.qsa.contains_key(&sa) {
-      self.qsa.insert(sa, (self.nsa[&sa] as f32 * self.qsa[&sa] + v as f32) / (self.nsa[&sa] + 1) as f32);
+    let mut win = 0.0;
+    if v == turn {
+      win = 1.0;
+    }
+    if self.nsa.contains_key(&sa) {
+      self.wsa.insert(sa, self.wsa[&sa] + win);
       self.nsa.insert(sa, self.nsa[&sa] + 1);
     } else {
-      self.qsa.insert(sa, v as f32);
+      self.wsa.insert(sa, win);
       self.nsa.insert(sa, 1);
     }
+    self.qsa.insert(sa, self.wsa[&sa] / self.nsa[&sa] as f32);
     self.ns.insert(s, self.ns[&s] + 1);
     
-    -v
+    v
   }
 }

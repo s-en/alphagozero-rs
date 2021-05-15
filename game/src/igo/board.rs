@@ -119,20 +119,21 @@ impl Board {
     }
   }
   pub fn vec_valid_moves(&self, color: Turn) -> Vec<bool> {
-    let stones = self.valid_moves(color);
+   // let stones = self.valid_moves(color);
+    let stones = self.black | self.white;
     let amax = self.action_size() - 1;
     let mut res: Vec<bool> = vec![false; self.action_size()];
     let mut true_cnt = 0;
     for i in 0..amax {
-      let key = stones >> i & 1 == 1;
+      let key = stones >> i & 1 == 0;
       res[i] = key;
       if key {
         true_cnt += 1;
       }
     }
-    if true_cnt == 0 {
-      res[amax] = true; // pass
-    }
+    // if true_cnt == 0 {
+    //   res[amax] = true; // pass
+    // }
     res
   }
   pub fn valid_moves(&self, color: Turn) -> Stones {
@@ -143,18 +144,27 @@ impl Board {
     let hist = self.history(color);
     let opp_hist = self.opp_history(color);
     let kuten = self.mask(!bw);
+    // kuten where surrounded by same color stones
+    let st_surround_kuten = kuten & (
+      (st >> 1 | self.edge(Dir::Right)) &
+      (st << 1 | self.edge(Dir::Left)) &
+      (st >> s | self.edge(Dir::Down)) &
+      (st << s | self.edge(Dir::Up)));
     let op_surround_kuten = kuten & (
       (op >> 1 | self.edge(Dir::Right)) &
       (op << 1 | self.edge(Dir::Left)) &
       (op >> s | self.edge(Dir::Down)) &
       (op << s | self.edge(Dir::Up)));
+    let surround_kuten = st_surround_kuten | op_surround_kuten;
+
     // ignore suicide
     let mut st_try = op_surround_kuten;
     let mut dstone = Stones::new(self.size);
     while st_try != 0 {
-      // try adding stone where surrounded by opponent stones
+      // try adding stone where surrounded by stones
       let rbit = st_try & ((!st_try) + 1);
       st_try = st_try ^ rbit; // remove right end bit
+      // try st
       let new_try = st | rbit;
       let ds = self.death_stones(op, new_try);
       if hist.contains(&new_try) && opp_hist.contains(&(op ^ ds)) {
@@ -163,31 +173,23 @@ impl Board {
       }
       dstone = dstone | ds;
     }
+    let mut op_try = st_surround_kuten;
+    while op_try != 0 {
+      // try adding stone where surrounded by stones
+      let rbit = op_try & ((!op_try) + 1);
+      op_try = op_try ^ rbit; // remove right end bit
+      // try op
+      let new_try = op | rbit;
+      let ds = self.death_stones(st, new_try);
+      dstone = dstone | ds;
+    }
     // valid if any of the beside stone died
-    let dbeside = op_surround_kuten & (
+    let dbeside = surround_kuten & (
       (dstone >> 1 & !self.edge(Dir::Right)) |
       (dstone << 1 & !self.edge(Dir::Left)) |
       (dstone >> s & !self.edge(Dir::Down)) |
       (dstone << s & !self.edge(Dir::Up)));
-    // ignore disabling own eye
-    let mut self_surround_kuten = kuten & (
-      (st >> 1 | self.edge(Dir::Right)) &
-      (st << 1 | self.edge(Dir::Left)) &
-      (st >> s | self.edge(Dir::Down)) &
-      (st << s | self.edge(Dir::Up)));
-    // disabling own eye is allowed when own stone possibly die
-    st_try = self_surround_kuten;
-    while st_try != 0 {
-      // try adding opponent stone where surrounded by own stones
-      let rbit = st_try & ((!st_try) + 1);
-      st_try = st_try ^ rbit; // remove right end bit
-      let new_try = op | rbit;
-      let ds = self.death_stones(st, new_try);
-      if ds != 0 {
-        self_surround_kuten = self_surround_kuten ^ rbit;
-      }
-    }
-    let valids = (kuten & !op_surround_kuten & !self_surround_kuten) | dbeside;
+    let valids = (kuten & !surround_kuten) | dbeside;
     valids
   }
   pub fn count_diff(&self) -> i32 {
@@ -196,12 +198,42 @@ impl Board {
     b - w
   }
   pub fn game_ended(&self) -> i8 {
-    let s = self.size().pow(2);
-    if self.pass_cnt < 2 && self.step < s * 2 {
-      return 0;
+    // 中央を取れば勝ち
+    if self.pass_cnt >= 1 {
+      // パスしたら負け
+      //return self.turn as i8 * -1;
     }
-    if self.count_diff() > 0 { return 1; }
-    return -1;
+    let mut cnt = 0;
+    if self.black & 1 == 1 {
+      cnt += 1;
+    }
+    for &i in &[4, 24, 20] {
+      if self.black >> i & 1 == 1 {
+        cnt += 1;
+      }
+      if cnt >= 2 {
+        return 1;
+      }
+    }
+    cnt = 0;
+    if self.white & 1 == 1 {
+      cnt += 1;
+    }
+    for &i in &[4, 24, 20] {
+      if self.white >> i & 1 == 1 {
+        cnt += 1;
+      }
+      if cnt >= 2 {
+        return -1;
+      }
+    }
+    return 0;
+    // let s = self.size().pow(2);
+    // if self.pass_cnt < 2 && self.step < s * 2 {
+    //   return 0;
+    // }
+    // if self.count_diff() > 0 { return 1; }
+    // return -1;
   }
   pub fn get_kifu_sgf(&self) -> String {
     let mut kifu = "(;GM[1]SZ[5];".to_string();
@@ -230,8 +262,7 @@ impl Board {
   pub fn action(&mut self, mov: u32, turn: Turn) {
     self.step += 1;
     self.kifu.push((mov + 1) as i32 * self.turn as i32);
-    
-    for i in (1..3).rev() {
+    for i in (1..HIST_SIZE).rev() {
       self.history_black[i] = self.history_black[i-1];
       self.history_white[i] = self.history_white[i-1];
     }
@@ -249,9 +280,9 @@ impl Board {
     // hit stone
     self.set_stones(turn, stones | 1 << mov);
     // remove opp color
-    self.remove_death_stones(turn.rev());
+    //self.remove_death_stones(turn.rev());
     // remove my color
-    self.remove_death_stones(turn);
+    //self.remove_death_stones(turn);
     self.turn = turn.rev();
   }
   pub fn remove_death_stones(&mut self, color: Turn) {

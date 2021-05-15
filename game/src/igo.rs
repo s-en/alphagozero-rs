@@ -49,10 +49,9 @@ pub struct MCTS {
   cpuct: f32,
   qsa: HashMap<(u64, usize), f32>, // Q values
   nsa: HashMap<(u64, usize), u32>, // edge visited times
+  wsa: HashMap<(u64, usize), f32>, // win probability total
   ns: HashMap<u64, u32>, // board visited times
   ps: HashMap<u64, Vec<f32>>, // initial policy (returned by neural net)
   es: HashMap<u64, f32>, // game ended
   vs: HashMap<u64, Vec<bool>>, // valid moves
-  search_cnt: u32,
-  cache_hit_cnt: u32,
 }

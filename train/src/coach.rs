@@ -19,7 +19,6 @@ impl Coach {
     let mut episode_step = 0;
     let temp_threshold = 5 * 2;
     //let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_seed([42; 32]);
-  
     let mut kcnt = 0;
     loop {
       episode_step += 1;
@@ -28,12 +27,6 @@ impl Coach {
         temp = 1.0;
       }
       let pi = mcts.get_action_prob(&board, temp, &predict(net));
-      // let pi = board.vec_valid_moves(board.turn).iter().map(|&x| {
-      //   if x {
-      //     return 1.0;
-      //   }
-      //   0.0
-      // }).collect();
       let dist = WeightedIndex::new(&pi).unwrap();
       let sym = board.symmetries(pi);
       for (b, p) in sym {
@@ -45,6 +38,7 @@ impl Coach {
         examples.push(ex);
       }
       let action = dist.sample(&mut self.rng) as u32;
+      //println!("action {}", action);
       board.action(action, board.turn);
   
       let r = board.game_ended();
@@ -52,19 +46,19 @@ impl Coach {
       if r != 0 {
         // if kcnt == 0 {
         //   kcnt += 1;
-        //   println!("{}", board.get_kifu_sgf());
-        //   println!("");
         // }
         // println!("{:?}", board.count_diff());
         // println!("{}", r);
         // println!("{}", board);
-        // println!("");
+        println!("{} {}", r, board.get_kifu_sgf());
+        println!("");
         let v = r as i32;
         for mut ex in &mut examples {
           // v: 1.0 black won
           // v: -1.0 white won
            ex.v = v as f32;
         }
+        //println!("{:?}", examples);
         return examples;
       }
     }
@@ -72,7 +66,7 @@ impl Coach {
   
   pub fn learn(&mut self) {
     let num_iters = 50;
-    let num_eps = 100;
+    let num_eps = 10;
     let maxlen_of_queue = 20000;
     let num_iters_for_train_examples_history = 50000;
     let update_threshold = 0.55;
@@ -86,9 +80,8 @@ impl Coach {
     let num_channels: i64 = 32;
     let mut net = NNet::new(board_size, action_size, num_channels);
     let mut pnet = NNet::new(board_size, action_size, num_channels);
-    // let board = Board::new(BoardSize::S5);
-    net.load("temp/best.pt");
-    pnet.load("temp/best.pt");
+    // net.load("temp/best.pt");
+    // pnet.load("temp/best.pt");
   
     for i in 1..(num_iters + 1) {
       println!("Starting Iter #{} ...", i);
@@ -99,7 +92,7 @@ impl Coach {
         };
         println!("self playing...");
         for _ in (0..num_eps).progress() {
-          let mut mcts = MCTS::new(20); // reset search tree
+          let mut mcts = MCTS::new(100); // reset search tree
           let examples = self.execute_episode(&mut mcts, &net);
           iteration_train_examples.values.extend(examples);
         }
@@ -116,7 +109,10 @@ impl Coach {
       for e in &train_examples_history.values {
         train_examples.push(e);
       }
+      // println!("{:?}", train_examples[73]);
+      // return;
       let vs = train_examples.iter().map(|x| x.v).collect::<Vec<f32>>();
+      //println!("{:?}", vs);
       println!("won {:?}", vs.iter().filter(|&x| x > &0.0).sum::<f32>());
       println!("lose {:?}", vs.iter().filter(|&x| x < &0.0).sum::<f32>());
       train_examples.shuffle(&mut self.rng);
@@ -124,17 +120,26 @@ impl Coach {
       // training new network, keeping a copy of the old one
       net.save("temp/temp.pt");
       pnet.load("temp/temp.pt");
-      let mut pmcts = MCTS::new(5);
-      let mut nmcts = MCTS::new(5);
+      let mut pmcts = MCTS::new(3);
+      let mut nmcts = MCTS::new(3);
   
-      let board = Board::new(BoardSize::S5);
+      let mut board = Board::new(BoardSize::S5);
       let pi = NNet::predict(&net, board.input());
       println!("before {:?}", pi);
+      //println!("{:?}", train_examples);
+      // for row in &train_examples {
+      //   println!("{:?}", &row.board[25..50]);
+      //   println!("{:?}", row.v);
+      // }
 
       net.train(train_examples);
 
       let pi = NNet::predict(&net, board.input());
       println!("after {:?}", pi);
+      board.action(3, Turn::Black);
+      //board.turn = Turn::White;
+      let pi = NNet::predict(&net, board.input());
+      println!("white turn {:?}", pi);
   
       println!("PITTING AGAINST PREVIOUS VERSION");
       let temp = 0.0;
@@ -172,11 +177,14 @@ impl Coach {
       if !valids[action] {
         println!("Action {} is not valid!", action);
         println!("valids = {:?}", valids);
+        println!("{}", board.get_kifu_sgf());
         assert!(valids[action]);
       }
       // println!("{}", board.valid_moves(board.turn));
-      // println!("Turn {} Player {} action {} {}", it, board.turn as i32, action % 5 + 1, action / 5 + 1);
-      // println!("{}", board);
+      // if rep == 0 {
+      //   println!("Turn {} Player {} action {} {}", it, board.turn as i32, action % 5 + 1, action / 5 + 1);
+      //   println!("{}", board);
+      // }
       board.action(action as u32, board.turn);
       // println!("Turn {} Player {} action {} {}", it, board.turn as i32, action % 5 + 1, action / 5 + 1);
       cur_player = (board.turn as i32 + 1) as usize / 2;
@@ -227,7 +235,7 @@ impl Coach {
         valids[0]
       } else {
         let probs = _mcts.get_action_prob(&x, temp, &predict(_net));
-        // println!("{:?}", probs);
+        //println!("{:?}", probs);
         mcts::max_idx(&probs)
       }
     })
