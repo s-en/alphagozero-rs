@@ -27,15 +27,29 @@ impl MCTS {
       vs: HashMap::new(), // valid moves
     }
   }
+  pub fn get_win_rate(&self, c_board: &Board) -> f32 {
+    let s = c_board.calc_hash();
+    let amax = c_board.action_size();
+    let mut qsas = Vec::new();
+    for a in 0..amax {
+      let mut val = 0.0;
+      if self.qsa.contains_key(&(s, a)) {
+        val = self.qsa[&(s, a)];
+      }
+      qsas.push(val);
+    }
+    println!("qsas {:?}", qsas);
+    println!("");
+    0.0
+  }
   pub fn get_action_prob<F: Fn(Vec<f32>) -> (Vec<f32>, f32)>(&mut self, c_board: &Board, temp: f32, predict: &F) -> Vec<f32> {
+    let s = c_board.calc_hash();
+    let amax = c_board.action_size();
     for i in 0..self.sim_num {
       let mut b = c_board.clone();
-      //println!("sum_num: {:?}", i);
       self.search(&mut b, predict);
     }
-    let amax = c_board.action_size();
     let mut counts = Vec::new();
-    let s = c_board.calc_hash();
     for a in 0..amax {
       let mut val = 0;
       if self.nsa.contains_key(&(s, a)) {
@@ -45,7 +59,6 @@ impl MCTS {
     }
     //println!("counts: {:?}", counts);
     if temp == 0.0 {
-      //println!("nsa {:?}", self.nsa);
       let mut probs = vec![0.0; amax];
       let best_idx = max_idx(&counts);
       probs[best_idx] = 1.0;
@@ -86,9 +99,6 @@ impl MCTS {
     let valids = &self.vs[&s];
     let mut cur_best = f32::MIN;
     let mut best_act: isize = -1;
-    // if c_board.turn == Turn::White {
-    //   cur_best = f32::MAX;
-    // }
 
     // pick best action
     let amax = c_board.action_size();
@@ -101,23 +111,16 @@ impl MCTS {
       } else {
         u = self.cpuct * self.ps[&s][a] * (self.ns[&s] as f32 + 1e-8).sqrt();
       }
-      // if c_board.turn == Turn::Black && u > cur_best {
-      //   cur_best = u;
-      //   best_act = a as isize;
-      // }
-      // if c_board.turn == Turn::White && u < cur_best {
-      //   cur_best = u;
-      //   best_act = a as isize;
-      // }
       if u > cur_best {
         cur_best = u;
         best_act = a as isize;
       }
     }
     let a = best_act;
-    //println!("{:?}", valids);
+    // println!("valids {:?}", valids);
     if a < 0 { panic!("no valid moves"); }
     let a = a as usize;
+    // println!("action {}", a);
 
     // play one step
     let turn = c_board.turn as i32 as f32;
@@ -125,9 +128,9 @@ impl MCTS {
 
     // maximum step
     if c_board.step > 50 {
-      println!("step action {}", a);
-      println!("{:?}", c_board.get_kifu_sgf());
-      println!("{}", c_board);
+      // println!("step action {}", a);
+      // println!("{:?}", c_board.get_kifu_sgf());
+      // println!("{}", c_board);
       return 0.0;
     }
 
@@ -136,10 +139,10 @@ impl MCTS {
 
     // move back up the tree
     let sa = (s, a);
-    let mut win = 0.0;
-    if v == turn {
-      win = 1.0;
-    }
+    let mut win = v * turn;
+    // if win < 0.0 {
+    //   win = 0.0;
+    // }
     if self.nsa.contains_key(&sa) {
       self.wsa.insert(sa, self.wsa[&sa] + win);
       self.nsa.insert(sa, self.nsa[&sa] + 1);

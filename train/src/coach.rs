@@ -26,7 +26,10 @@ impl Coach {
       if episode_step < temp_threshold {
         temp = 1.0;
       }
+      //println!("step {:?} turn {:?}", board.step, board.turn as i32);
+      //println!("{}", board);
       let pi = mcts.get_action_prob(&board, temp, &predict(net));
+      //mcts.get_win_rate(&board);
       let dist = WeightedIndex::new(&pi).unwrap();
       let sym = board.symmetries(pi);
       for (b, p) in sym {
@@ -44,14 +47,8 @@ impl Coach {
       let r = board.game_ended();
   
       if r != 0 {
-        // if kcnt == 0 {
-        //   kcnt += 1;
-        // }
-        // println!("{:?}", board.count_diff());
-        // println!("{}", r);
-        // println!("{}", board);
-        println!("{} {}", r, board.get_kifu_sgf());
-        println!("");
+        // println!("{} {}", r, board.get_kifu_sgf());
+        // println!("");
         let v = r as i32;
         for mut ex in &mut examples {
           // v: 1.0 black won
@@ -66,7 +63,7 @@ impl Coach {
   
   pub fn learn(&mut self) {
     let num_iters = 50;
-    let num_eps = 10;
+    let num_eps = 100;
     let maxlen_of_queue = 20000;
     let num_iters_for_train_examples_history = 50000;
     let update_threshold = 0.55;
@@ -80,8 +77,8 @@ impl Coach {
     let num_channels: i64 = 32;
     let mut net = NNet::new(board_size, action_size, num_channels);
     let mut pnet = NNet::new(board_size, action_size, num_channels);
-    // net.load("temp/best.pt");
-    // pnet.load("temp/best.pt");
+    net.load("temp/best.pt");
+    pnet.load("temp/best.pt");
   
     for i in 1..(num_iters + 1) {
       println!("Starting Iter #{} ...", i);
@@ -178,6 +175,7 @@ impl Coach {
         println!("Action {} is not valid!", action);
         println!("valids = {:?}", valids);
         println!("{}", board.get_kifu_sgf());
+        println!("{}", board);
         assert!(valids[action]);
       }
       // println!("{}", board.valid_moves(board.turn));

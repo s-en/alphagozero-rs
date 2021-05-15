@@ -119,21 +119,20 @@ impl Board {
     }
   }
   pub fn vec_valid_moves(&self, color: Turn) -> Vec<bool> {
-   // let stones = self.valid_moves(color);
-    let stones = self.black | self.white;
+    let stones = self.valid_moves(color);
     let amax = self.action_size() - 1;
     let mut res: Vec<bool> = vec![false; self.action_size()];
     let mut true_cnt = 0;
     for i in 0..amax {
-      let key = stones >> i & 1 == 0;
+      let key = stones >> i & 1 == 1;
       res[i] = key;
       if key {
         true_cnt += 1;
       }
     }
-    // if true_cnt == 0 {
-    //   res[amax] = true; // pass
-    // }
+    //if true_cnt == 0 {
+      res[amax] = true; // pass
+    //}
     res
   }
   pub fn valid_moves(&self, color: Turn) -> Stones {
@@ -198,42 +197,12 @@ impl Board {
     b - w
   }
   pub fn game_ended(&self) -> i8 {
-    // 中央を取れば勝ち
-    if self.pass_cnt >= 1 {
-      // パスしたら負け
-      //return self.turn as i8 * -1;
+    let s = self.size().pow(2);
+    if self.pass_cnt < 2 && self.step < s * 2 {
+      return 0;
     }
-    let mut cnt = 0;
-    if self.black & 1 == 1 {
-      cnt += 1;
-    }
-    for &i in &[4, 24, 20] {
-      if self.black >> i & 1 == 1 {
-        cnt += 1;
-      }
-      if cnt >= 2 {
-        return 1;
-      }
-    }
-    cnt = 0;
-    if self.white & 1 == 1 {
-      cnt += 1;
-    }
-    for &i in &[4, 24, 20] {
-      if self.white >> i & 1 == 1 {
-        cnt += 1;
-      }
-      if cnt >= 2 {
-        return -1;
-      }
-    }
-    return 0;
-    // let s = self.size().pow(2);
-    // if self.pass_cnt < 2 && self.step < s * 2 {
-    //   return 0;
-    // }
-    // if self.count_diff() > 0 { return 1; }
-    // return -1;
+    if self.count_diff() > 0 { return 1; }
+    return -1;
   }
   pub fn get_kifu_sgf(&self) -> String {
     let mut kifu = "(;GM[1]SZ[5];".to_string();
@@ -280,9 +249,9 @@ impl Board {
     // hit stone
     self.set_stones(turn, stones | 1 << mov);
     // remove opp color
-    //self.remove_death_stones(turn.rev());
+    self.remove_death_stones(turn.rev());
     // remove my color
-    //self.remove_death_stones(turn);
+    self.remove_death_stones(turn);
     self.turn = turn.rev();
   }
   pub fn remove_death_stones(&mut self, color: Turn) {

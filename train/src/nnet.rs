@@ -139,7 +139,7 @@ impl NNet {
     // examples: list of examples, each example is of form (board, pi, v)
     tch::manual_seed(42);
     let mut optimizer = nn::Adam::default().build(&self.vs, 1e-3)?;
-    let epochs = 10;
+    let epochs = 100;
     let batch_size = 32;
     println!("start train");
     let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_seed([42; 32]);
