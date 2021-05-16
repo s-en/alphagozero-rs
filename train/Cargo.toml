@@ -10,10 +10,17 @@ edition = "2018"
 lto = true
 
 [dependencies]
-tch = "0.4.0"
+tch = "0.4.1"
 anyhow = "1.0"
 indicatif = "0.16.0"
 rand = { version = "0.6.5", features = ["wasm-bindgen"] }
 savefile="0.7"
 savefile-derive="0.7"
 az_game = { path = "../game" }
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "my_benchmark"
+harness = false

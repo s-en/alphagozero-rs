@@ -41,6 +41,7 @@ pub struct Examples {
 
 fn main() {
   println!("{}",tch::Cuda::is_available());
+  let x: f32 = 0.0;
   tch::manual_seed(42);
   let mut coach = Coach {
     rng: rand::SeedableRng::from_seed([42; 32])

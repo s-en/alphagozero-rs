@@ -117,17 +117,12 @@ impl Coach {
       // training new network, keeping a copy of the old one
       net.save("temp/temp.pt");
       pnet.load("temp/temp.pt");
-      let mut pmcts = MCTS::new(3);
-      let mut nmcts = MCTS::new(3);
+      let mut pmcts = MCTS::new(10);
+      let mut nmcts = MCTS::new(10);
   
       let mut board = Board::new(BoardSize::S5);
       let pi = NNet::predict(&net, board.input());
       println!("before {:?}", pi);
-      //println!("{:?}", train_examples);
-      // for row in &train_examples {
-      //   println!("{:?}", &row.board[25..50]);
-      //   println!("{:?}", row.v);
-      // }
 
       net.train(train_examples);
 

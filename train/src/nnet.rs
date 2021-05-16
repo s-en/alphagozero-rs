@@ -68,7 +68,7 @@ fn basic_layer(p: &nn::Path, c_in: i64, c_out: i64, stride: i64, cnt: i64) -> im
 
 impl NNet {
   pub fn new(board_size: i64, action_size: i64, num_channels: i64) -> NNet {
-    let vs = nn::VarStore::new(Device::Cpu);
+    let vs = nn::VarStore::new(Device::cuda_if_available());
     let root = vs.root();
     let bs = board_size;
     let header_t = nn::seq_t()
@@ -111,27 +111,19 @@ impl NNet {
     (pi, v)
   }
   pub fn predict(net: &NNet, board: Vec<f32>) -> (Vec<f32>, f32) {
-    let b = Tensor::of_slice(&board);
+    let b = Tensor::of_slice(&board).to_device(net.vs.device());
     net.predict_tensor(b)
   }
   pub fn predict_tensor(&self, board: Tensor) -> (Vec<f32>, f32) {
-    // todo cuda
     let b = board.view([9, self.board_size, self.board_size]);
-    let mut pi: Tensor = Tensor::zeros(&[1, self.board_size*self.board_size+1], tch::kind::FLOAT_CPU);
-    let mut v: Tensor = Tensor::zeros(&[1, 1], tch::kind::FLOAT_CPU);
+    let mut pi: Tensor = Tensor::zeros(&[1, self.board_size*self.board_size+1], tch::kind::FLOAT_CUDA);
+    let mut v: Tensor = Tensor::zeros(&[1, 1], tch::kind::FLOAT_CUDA);
     no_grad(|| {
       let (pis, vs) = self.forward(&b, false);
       pi = pis;
       v = vs;
     });
-    // let r1 = Vec::<f32>::from(pi.exp());
     let r1 = Vec::<f32>::from(&pi);
-    // if r1[0].is_nan() {
-    //   println!("b {:?}", b);
-    //   b.print();
-    //   pi.print();
-    //   v.print();
-    // }
     let r2 = v.double_value(&[0]) as f32;
     (r1, r2)
   }
@@ -147,9 +139,9 @@ impl NNet {
       for _ in (0..10).progress() {
         let sample_ids = randint(examples.len(), batch_size, &mut rng);
         let ex: Vec<&Example> = examples.iter().enumerate().filter(|(i, _)| sample_ids.contains(i)).map(|(_, e)| *e).collect();
-        let boards = Tensor::of_slice2(&ex.iter().map(|x| &x.board).collect::<Vec<&Vec<f32>>>());
-        let target_pis = Tensor::of_slice2(&ex.iter().map(|x| &x.pi).collect::<Vec<&Vec<f32>>>());
-        let target_vs = Tensor::of_slice(&ex.iter().map(|x| x.v).collect::<Vec<f32>>());
+        let boards = Tensor::of_slice2(&ex.iter().map(|x| &x.board).collect::<Vec<&Vec<f32>>>()).to_device(self.vs.device());
+        let target_pis = Tensor::of_slice2(&ex.iter().map(|x| &x.pi).collect::<Vec<&Vec<f32>>>()).to_device(self.vs.device());
+        let target_vs = Tensor::of_slice(&ex.iter().map(|x| x.v).collect::<Vec<f32>>()).to_device(self.vs.device());
         // todo cuda
         // compute output
         let (out_pi, out_v) = self.forward(&boards, true);

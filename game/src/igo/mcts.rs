@@ -45,7 +45,7 @@ impl MCTS {
   pub fn get_action_prob<F: Fn(Vec<f32>) -> (Vec<f32>, f32)>(&mut self, c_board: &Board, temp: f32, predict: &F) -> Vec<f32> {
     let s = c_board.calc_hash();
     let amax = c_board.action_size();
-    for i in 0..self.sim_num {
+    for _ in 0..self.sim_num {
       let mut b = c_board.clone();
       self.search(&mut b, predict);
     }
@@ -57,7 +57,7 @@ impl MCTS {
       }
       counts.push(val as f32);
     }
-    //println!("counts: {:?}", counts);
+    // println!("counts: {:?}", counts);
     if temp == 0.0 {
       let mut probs = vec![0.0; amax];
       let best_idx = max_idx(&counts);
