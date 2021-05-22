@@ -127,11 +127,34 @@ impl NNet {
     let r2 = v.double_value(&[0]) as f32;
     (r1, r2)
   }
+  pub fn predict32(net: &NNet, board: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
+    let b = Tensor::of_slice2(&board).to_device(net.vs.device());
+    net.predict32_tensor(b, board.len() as i64)
+  }
+  pub fn predict32_tensor(&self, board: Tensor, num: i64) -> Vec<(Vec<f32>, f32)> {
+    let b = board.view([num, 9, self.board_size, self.board_size]);
+    let mut pi: Tensor = Tensor::zeros(&[num, self.board_size*self.board_size+1], tch::kind::FLOAT_CUDA);
+    let mut v: Tensor = Tensor::zeros(&[num, 1], tch::kind::FLOAT_CUDA);
+    no_grad(|| {
+      let (pis, vs) = self.forward(&b, false);
+      pi = pis;
+      v = vs;
+    });
+    let mut res = Vec::new();
+    let rs1 = pi.view([num, self.board_size*self.board_size+1]);
+    let rs2 = v.view([num, 1]);
+    for i in 0..num {
+      let r1 = Vec::<f32>::from(rs1.narrow(0, i, 1));
+      let r2 = rs2.double_value(&[i, 0]) as f32;
+      res.push((r1, r2));
+    }
+    res
+  }
   pub fn train(&self, examples: Vec<&Example>) -> Result<()> {
     // examples: list of examples, each example is of form (board, pi, v)
     tch::manual_seed(42);
     let mut optimizer = nn::Adam::default().build(&self.vs, 1e-3)?;
-    let epochs = 100;
+    let epochs = 50;
     let batch_size = 32;
     println!("start train");
     let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_seed([42; 32]);

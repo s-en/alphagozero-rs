@@ -40,8 +40,7 @@ pub struct Examples {
 }
 
 fn main() {
-  println!("{}",tch::Cuda::is_available());
-  let x: f32 = 0.0;
+  println!("cuda is_available: {}",tch::Cuda::is_available());
   tch::manual_seed(42);
   let mut coach = Coach {
     rng: rand::SeedableRng::from_seed([42; 32])
@@ -54,7 +53,7 @@ fn nnet_test() {
   let board_size: i64 = 5;
   let action_size: i64 = 26;
   let num_channels: i64 = 32;
-  let mut net = NNet::new(board_size, action_size, num_channels);
+  let net = NNet::new(board_size, action_size, num_channels);
 
   let ex = Example {
     board: vec![
@@ -122,7 +121,7 @@ fn nnet_test() {
     ],
     v: 1.0
   };
-  let mut board = Board::new(BoardSize::S5);
+  let board = Board::new(BoardSize::S5);
   let pi = NNet::predict(&net, board.input());
   println!("predict {:?}", pi);
   let mut examples = Vec::new();
