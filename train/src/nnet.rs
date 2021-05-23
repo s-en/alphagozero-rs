@@ -2,21 +2,12 @@ use super::*;
 use tch::{nn, Tensor, Device, nn::OptimizerConfig, no_grad, Kind, TchError, Reduction, nn::Conv2D, nn::FuncT, nn::ModuleT};
 use anyhow::Result;
 use indicatif::ProgressIterator;
+use std::time::SystemTime;
 
-fn randint(max: usize, size: usize, rng: &mut rand::rngs::StdRng) -> Vec<usize> {
+fn randint(max: usize, size: usize, rnd: &mut ThreadRng) -> Vec<usize> {
   let mut vec: Vec<usize> = Vec::with_capacity(size);
   for _ in 0..size {
-    let rnd: f32 = rng.gen();
-    vec.push((rnd * max as f32) as usize);
-  };
-  vec
-}
-
-pub fn randfloat(max: usize, size: usize, rng: &mut rand::rngs::StdRng) -> Vec<f32> {
-  let mut vec: Vec<f32> = Vec::with_capacity(size);
-  for _ in 0..size {
-    let rnd: f32 = rng.gen();
-    vec.push(rnd * max as f32);
+    vec.push(rnd.gen_range(0, max) as usize);
   };
   vec
 }
@@ -154,18 +145,18 @@ impl NNet {
     // examples: list of examples, each example is of form (board, pi, v)
     tch::manual_seed(42);
     let mut optimizer = nn::Adam::default().build(&self.vs, 1e-3)?;
-    let epochs = 50;
-    let batch_size = 32;
+    let epochs = 10;
+    let batch_size = 128;
     println!("start train");
-    let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_seed([42; 32]);
-    for _ in (0..epochs).progress() {
-      for _ in (0..10).progress() {
-        let sample_ids = randint(examples.len(), batch_size, &mut rng);
+    let mut rnd = rand::thread_rng();
+    for i in 0..epochs {
+      for j in 0..10 {
+        // println!("{} {}", i, j);
+        let sample_ids = randint(examples.len(), batch_size, &mut rnd);
         let ex: Vec<&Example> = examples.iter().enumerate().filter(|(i, _)| sample_ids.contains(i)).map(|(_, e)| *e).collect();
         let boards = Tensor::of_slice2(&ex.iter().map(|x| &x.board).collect::<Vec<&Vec<f32>>>()).to_device(self.vs.device());
         let target_pis = Tensor::of_slice2(&ex.iter().map(|x| &x.pi).collect::<Vec<&Vec<f32>>>()).to_device(self.vs.device());
         let target_vs = Tensor::of_slice(&ex.iter().map(|x| x.v).collect::<Vec<f32>>()).to_device(self.vs.device());
-        // todo cuda
         // compute output
         let (out_pi, out_v) = self.forward(&boards, true);
         let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;

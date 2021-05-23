@@ -130,9 +130,9 @@ impl Board {
         true_cnt += 1;
       }
     }
-    //if true_cnt == 0 {
+    if true_cnt == 0 {
       res[amax] = true; // pass
-    //}
+    }
     res
   }
   pub fn valid_moves(&self, color: Turn) -> Stones {
@@ -203,6 +203,9 @@ impl Board {
     }
     if self.count_diff() > 0 { return 1; }
     return -1;
+    // if self.black >> 12 & 1 == 1 { return 1; }
+    // if self.white >> 12 & 1 == 1 { return -1; }
+    // return 0;
   }
   pub fn get_kifu_sgf(&self) -> String {
     let mut kifu = "(;GM[1]SZ[5];".to_string();

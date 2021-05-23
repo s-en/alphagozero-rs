@@ -24,7 +24,11 @@ pub struct NNet {
 }
 
 pub struct Coach {
-  rng: rand::rngs::StdRng
+  rng: rand::rngs::StdRng,
+  train_examples: Vec<Example>,
+  board_size: i64,
+  action_size: i64,
+  num_channels: i64,
 }
 
 #[derive(Savefile, Debug)]
@@ -40,10 +44,15 @@ pub struct Examples {
 }
 
 fn main() {
+  unsafe{ torch_sys::dummy_cuda_dependency(); }
   println!("cuda is_available: {}",tch::Cuda::is_available());
   tch::manual_seed(42);
   let mut coach = Coach {
-    rng: rand::SeedableRng::from_seed([42; 32])
+    rng: rand::SeedableRng::from_seed([42; 32]),
+    train_examples: Vec::new(),
+    board_size: 5,
+    action_size: 26,
+    num_channels: 32,
   };
   coach.learn();
 }
