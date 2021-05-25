@@ -23,7 +23,7 @@ fn predict32<'a>(net: &'a NNet) -> Box<dyn Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f
 }
 
 fn self_play(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64, seed: u64) {
-  let num_eps = 100;
+  let num_eps = 10;
   let maxlen_of_queue = 80000;
   let max_history_queue = 20000;
   let mut rng = rand::thread_rng();
@@ -102,10 +102,12 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> Vec<Exam
   let mut kcnt = 0;
   loop {
     episode_step += 1;
-    let mut temp = 1.0;
-    // if episode_step < temp_threshold {
-    //   temp = 1.0;
-    // }
+    let mut temp = 0.2;
+    if episode_step < temp_threshold {
+      temp = 1.0;
+    }else if episode_step < temp_threshold*2 {
+      temp = 0.5;
+    }
     // println!("step {:?} turn {:?}", board.step, board.turn as i32);
     // println!("{}", board);
     let pi = mcts.get_action_prob(&board, temp, &predict32(net));
@@ -159,9 +161,9 @@ fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
       examples.push(ex);
     }
   }
-  net.load("temp/trained.pt");
+  let dmodel = &mut net.load_trainable("temp/trained.pt");
   let ex = examples.iter().map(|x| x).collect();
-  net.train(ex);
+  net.train(dmodel, ex);
   net.save("temp/trained.pt");
 
   let pi = NNet::predict(&net, board.input());
@@ -249,7 +251,7 @@ pub fn play_games(num: u32, board_size: i64, action_size: i64, num_channels: i64
 
   println!("Arena.playGames (1)");
   let (tx, rx) = mpsc::channel();
-  let temp = 1.0;
+  let temp = 0.5;
   for i in 0..num {
     let tx1 = mpsc::Sender::clone(&tx);
     thread::spawn(move || {

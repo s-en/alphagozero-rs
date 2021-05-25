@@ -201,7 +201,7 @@ impl Board {
     if self.pass_cnt < 2 && self.step < s * 2 {
       return 0;
     }
-    if self.count_diff() > 0 { return 1; }
+    if self.count_diff() > 10 { return 1; }
     return -1;
     // if self.black >> 12 & 1 == 1 { return 1; }
     // if self.white >> 12 & 1 == 1 { return -1; }

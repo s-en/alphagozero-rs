@@ -17,10 +17,7 @@ pub struct NNet {
   action_size: i64,
   num_channels: i64,
   vs: nn::VarStore,
-  headerT: nn::SequentialT,
-  blocksT: nn::SequentialT,
-  pT: nn::SequentialT,
-  vT: nn::SequentialT,
+  model: Option<CModule>
 }
 
 pub struct Coach {
@@ -42,6 +39,14 @@ pub struct Example {
 pub struct Examples {
   pub values: VecDeque<Example>
 }
+
+use anyhow::Result;
+use tch::Tensor;
+use tch::nn::{Adam, OptimizerConfig, VarStore};
+use tch::vision::dataset::Dataset;
+use tch::TrainableCModule;
+use tch::{CModule, Device};
+use std::path::Path;
 
 fn main() {
   unsafe{ torch_sys::dummy_cuda_dependency(); }

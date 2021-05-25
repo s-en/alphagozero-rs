@@ -1,6 +1,6 @@
 use super::*;
-use tch::{nn, Tensor, Device, nn::OptimizerConfig, no_grad, Kind, TchError, Reduction, nn::Conv2D, nn::FuncT, nn::ModuleT};
-use anyhow::Result;
+use tch::{nn, Tensor, Device, IValue, nn::OptimizerConfig, no_grad, Kind, TchError, Reduction, nn::Conv2D, nn::FuncT, nn::ModuleT};
+use anyhow::{bail, Result};
 use indicatif::ProgressIterator;
 use std::time::SystemTime;
 
@@ -61,45 +61,13 @@ impl NNet {
   pub fn new(board_size: i64, action_size: i64, num_channels: i64) -> NNet {
     let vs = nn::VarStore::new(Device::cuda_if_available());
     let root = vs.root();
-    let bs = board_size;
-    let header_t = nn::seq_t()
-        .add(conv2d(&root, 9, num_channels, 3, 1, 1))
-        .add(nn::batch_norm2d(&root, num_channels, Default::default()))
-        .add_fn(|xs| xs.relu());
-    let blocks_t = nn::seq_t()
-        .add(basic_layer(&root, num_channels, num_channels, 1, 10));
-    let p_t = nn::seq_t()
-        .add(conv2d(&root, num_channels, 32, 1, 0, 1)) // [1, 32, 5, 5]
-        .add(nn::batch_norm2d(&root, 32, Default::default())) // [1, 32, 5, 5]
-        .add_fn(move |xs| xs.relu().view([-1, bs*bs*32])) // [bs*bs*32]
-        .add(nn::linear(&root, bs*bs*32, action_size, Default::default())) // [1, action_size]
-        .add_fn(|xs| xs.log_softmax(-1, Kind::Float).exp()); // [1, action_size]
-    let v_t = nn::seq_t()
-        .add(conv2d(&root, num_channels, 3, 1, 0, 1))
-        .add(nn::batch_norm2d(&root, 3, Default::default()))
-        .add_fn(move |xs| xs.relu().view([-1, bs*bs*3]))
-        .add(nn::linear(&root, bs*bs*3, 32, Default::default()))
-        .add_fn(|xs| xs.relu())
-        .add(nn::linear(&root, 32, 1, Default::default()))
-        .add_fn(|xs| xs.tanh());
     NNet {
       board_size,
       action_size,
       num_channels,
       vs,
-      headerT: header_t,
-      blocksT: blocks_t,
-      pT: p_t,
-      vT: v_t,
+      model: None
     }
-  }
-  pub fn forward(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor) {
-    let s= xs.view([-1, 9, self.board_size, self.board_size])
-          .apply_t(&self.headerT, train)
-          .apply_t(&self.blocksT, train);
-    let pi = s.apply_t(&self.pT, train);
-    let v = s.apply_t(&self.vT, train);
-    (pi, v)
   }
   pub fn predict(net: &NNet, board: Vec<f32>) -> (Vec<f32>, f32) {
     let b = Tensor::of_slice(&board).to_device(net.vs.device());
@@ -109,11 +77,40 @@ impl NNet {
     let b = board.view([9, self.board_size, self.board_size]);
     let mut pi: Tensor = Tensor::zeros(&[1, self.board_size*self.board_size+1], tch::kind::FLOAT_CUDA);
     let mut v: Tensor = Tensor::zeros(&[1, 1], tch::kind::FLOAT_CUDA);
-    no_grad(|| {
-      let (pis, vs) = self.forward(&b, false);
-      pi = pis;
-      v = vs;
-    });
+    if let Some(model) = &self.model {
+      let output = model.forward_is(&[tch::IValue::Tensor(b)]);
+      let res = match output {
+        Ok(val) => match val {
+          IValue::Tuple(ivalues) => match &ivalues[..] {
+              [IValue::Tensor(t1), IValue::Tensor(t2)] => Ok((t1.shallow_clone(), t2.shallow_clone())),
+              _ => Err("unexpected output"),
+          },
+          _ => Err("unexpected output"),
+        },
+        _ => Err("forward_is error"),
+      };
+      if let Ok((pis, vs)) = res {
+        pi = pis;
+        v = vs;
+      }
+    }
+    // no_grad(|| {
+    //   if let Some(model) = self.model {
+    //     let output = model.forward_is(&[tch::IValue::Tensor(b)]);
+    //     let (pis, vs) = match output {
+    //       Ok(val) => match val {
+    //         IValue::Tuple(ivalues) => match &ivalues[..] {
+    //             [IValue::Tensor(t1), IValue::Tensor(t2)] => (t1.shallow_clone(), t2.shallow_clone()),
+    //             _ => bail!("unexpected output {:?}", ivalues),
+    //         },
+    //         _ => bail!("unexpected output {:?}", output),
+    //       },
+    //       _ => bail!("forward_is error"),
+    //     };
+    //     pi = pis;
+    //     v = vs;
+    //   }
+    // });
     let r1 = Vec::<f32>::from(&pi);
     let r2 = v.double_value(&[0]) as f32;
     (r1, r2)
@@ -126,11 +123,28 @@ impl NNet {
     let b = board.view([num, 9, self.board_size, self.board_size]);
     let mut pi: Tensor = Tensor::zeros(&[num, self.board_size*self.board_size+1], tch::kind::FLOAT_CUDA);
     let mut v: Tensor = Tensor::zeros(&[num, 1], tch::kind::FLOAT_CUDA);
-    no_grad(|| {
-      let (pis, vs) = self.forward(&b, false);
-      pi = pis;
-      v = vs;
-    });
+    if let Some(model) = &self.model {
+      let output = model.forward_is(&[tch::IValue::Tensor(b)]);
+      let res = match output {
+        Ok(val) => match val {
+          IValue::Tuple(ivalues) => match &ivalues[..] {
+              [IValue::Tensor(t1), IValue::Tensor(t2)] => Ok((t1.shallow_clone(), t2.shallow_clone())),
+              _ => Err("unexpected output"),
+          },
+          _ => Err("unexpected output"),
+        },
+        _ => Err("forward_is error"),
+      };
+      if let Ok((pis, vs)) = res {
+        pi = pis;
+        v = vs;
+      }
+    }
+    // no_grad(|| {
+    //   let (pis, vs) = self.forward(&b, false);
+    //   pi = pis;
+    //   v = vs;
+    // });
     let mut res = Vec::new();
     let rs1 = pi.view([num, self.board_size*self.board_size+1]);
     let rs2 = v.view([num, 1]);
@@ -141,7 +155,7 @@ impl NNet {
     }
     res
   }
-  pub fn train(&self, examples: Vec<&Example>) -> Result<()> {
+  pub fn train(&self, trainable_model: &mut TrainableCModule, examples: Vec<&Example>) -> Result<()> {
     // examples: list of examples, each example is of form (board, pi, v)
     tch::manual_seed(42);
     let mut optimizer = nn::Adam::default().build(&self.vs, 1e-3)?;
@@ -149,6 +163,7 @@ impl NNet {
     let batch_size = 128;
     println!("start train");
     let mut rnd = rand::thread_rng();
+    trainable_model.set_train();
     for i in 0..epochs {
       for j in 0..10 {
         // println!("{} {}", i, j);
@@ -158,22 +173,37 @@ impl NNet {
         let target_pis = Tensor::of_slice2(&ex.iter().map(|x| &x.pi).collect::<Vec<&Vec<f32>>>()).to_device(self.vs.device());
         let target_vs = Tensor::of_slice(&ex.iter().map(|x| x.v).collect::<Vec<f32>>()).to_device(self.vs.device());
         // compute output
-        let (out_pi, out_v) = self.forward(&boards, true);
-        let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;
-        let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
-        let total_loss = l_pi + l_v;
+        let ten = boards.apply_t(trainable_model, true);
+        ten.print();
+        //let (out_pi, out_v) = boards.apply_t(&trainable_model, true);
+        // let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;
+        // let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
+        // let total_loss = l_pi + l_v;
 
-        optimizer.zero_grad();
-        total_loss.backward();
-        optimizer.step();
+        // optimizer.zero_grad();
+        // total_loss.backward();
+        // optimizer.step();
       }
     }
     Ok(())
   }
-  pub fn save<T: AsRef<std::path::Path>>(&self, path: T) -> Result<(), TchError> {
-    self.vs.save(path)
+  pub fn save<T: AsRef<std::path::Path>>(&self, path: T) {
+    // self.vs.save(path)
+    if let Some(model) = &self.model {
+      model.save(path);
+    }
   }
-  pub fn load<T: AsRef<std::path::Path>>(&mut self, path: T) -> Result<(), TchError> {
-    self.vs.load(path)
+  pub fn load<T: AsRef<std::path::Path>>(&mut self, path: T) {
+    // self.vs.load(path)
+    let model = CModule::load(
+      path
+    ).expect("failed loading dualnet model");
+    self.model = Some(model);
+  }
+  pub fn load_trainable<T: AsRef<std::path::Path>>(&mut self, path: T) -> TrainableCModule {
+    // self.vs.load(path)
+    TrainableCModule::load(
+      path, self.vs.root()
+    ).expect("failed loading deualnet trainable model")
   }
 }
