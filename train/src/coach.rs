@@ -23,7 +23,7 @@ fn predict32<'a>(net: &'a NNet) -> Box<dyn Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f
 }
 
 fn self_play(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64, seed: u64) {
-  let num_eps = 10;
+  let num_eps = 100;
   let maxlen_of_queue = 80000;
   let max_history_queue = 20000;
   let mut rng = rand::thread_rng();
@@ -145,7 +145,8 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> Vec<Exam
 }
 fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64) {
   let mut net = NNet::new(board_size, action_size, num_channels);
-  let mut board = Board::new(BoardSize::S5);
+  let board = Board::new(BoardSize::S5);
+  net.load_trainable("temp/trained.pt");
   let pi = NNet::predict(&net, board.input());
   println!("before {:?}", pi);
 
@@ -161,9 +162,8 @@ fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
       examples.push(ex);
     }
   }
-  let dmodel = &mut net.load_trainable("temp/trained.pt");
   let ex = examples.iter().map(|x| x).collect();
-  net.train(dmodel, ex);
+  net.train(ex);
   net.save("temp/trained.pt");
 
   let pi = NNet::predict(&net, board.input());
@@ -184,11 +184,11 @@ fn arena(board_size: i64, action_size: i64, num_channels: i64) {
   let mut net = NNet::new(board_size, action_size, num_channels);
   if pwins + nwins == 0 || nwins * 100 / (pwins + nwins) < (update_threshold * 100.0) as u32 {
     println!("REJECTING NEW MODEL");
-    net.load("temp/best.pt");
-    net.save("temp/trained.pt");
+    // net.load("temp/best.pt");
+    // net.save("temp/trained.pt");
   } else {
     println!("ACCEPTING NEW MODEL");
-    net.load("temp/trained.pt");
+    net.load_trainable("temp/trained.pt");
     net.save("temp/best.pt");
   }
 }

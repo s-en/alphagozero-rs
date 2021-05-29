@@ -17,7 +17,8 @@ pub struct NNet {
   action_size: i64,
   num_channels: i64,
   vs: nn::VarStore,
-  model: Option<CModule>
+  model: Option<CModule>,
+  tmodel: Option<TrainableCModule>
 }
 
 pub struct Coach {
@@ -67,7 +68,8 @@ fn nnet_test() {
   let board_size: i64 = 5;
   let action_size: i64 = 26;
   let num_channels: i64 = 32;
-  let net = NNet::new(board_size, action_size, num_channels);
+  let mut net = NNet::new(board_size, action_size, num_channels);
+  net.load_trainable("temp/dualnet.pt");
 
   let ex = Example {
     board: vec![

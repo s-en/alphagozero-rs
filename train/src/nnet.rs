@@ -3,6 +3,7 @@ use tch::{nn, Tensor, Device, IValue, nn::OptimizerConfig, no_grad, Kind, TchErr
 use anyhow::{bail, Result};
 use indicatif::ProgressIterator;
 use std::time::SystemTime;
+use tch::IndexOp;
 
 fn randint(max: usize, size: usize, rnd: &mut ThreadRng) -> Vec<usize> {
   let mut vec: Vec<usize> = Vec::with_capacity(size);
@@ -66,7 +67,8 @@ impl NNet {
       action_size,
       num_channels,
       vs,
-      model: None
+      model: None,
+      tmodel: None
     }
   }
   pub fn predict(net: &NNet, board: Vec<f32>) -> (Vec<f32>, f32) {
@@ -75,44 +77,23 @@ impl NNet {
   }
   pub fn predict_tensor(&self, board: Tensor) -> (Vec<f32>, f32) {
     let b = board.view([9, self.board_size, self.board_size]);
-    let mut pi: Tensor = Tensor::zeros(&[1, self.board_size*self.board_size+1], tch::kind::FLOAT_CUDA);
+    let mut pi: Tensor = Tensor::zeros(&[1, self.action_size], tch::kind::FLOAT_CUDA);
     let mut v: Tensor = Tensor::zeros(&[1, 1], tch::kind::FLOAT_CUDA);
     if let Some(model) = &self.model {
-      let output = model.forward_is(&[tch::IValue::Tensor(b)]);
-      let res = match output {
-        Ok(val) => match val {
-          IValue::Tuple(ivalues) => match &ivalues[..] {
-              [IValue::Tensor(t1), IValue::Tensor(t2)] => Ok((t1.shallow_clone(), t2.shallow_clone())),
-              _ => Err("unexpected output"),
-          },
-          _ => Err("unexpected output"),
-        },
-        _ => Err("forward_is error"),
-      };
-      if let Ok((pis, vs)) = res {
-        pi = pis;
-        v = vs;
-      }
+      let output = model.forward_t(&b, false);
+      pi = output.narrow(1, 0, self.action_size);
+      v = output.narrow(1, self.action_size, 1);
+    } else if let Some(model) = &self.tmodel {
+      let output = model.forward_t(&b, false);
+      pi = output.narrow(1, 0, self.action_size);
+      v = output.narrow(1, self.action_size, 1);
+    } else {
+      println!("predict_tensor model not found");
     }
-    // no_grad(|| {
-    //   if let Some(model) = self.model {
-    //     let output = model.forward_is(&[tch::IValue::Tensor(b)]);
-    //     let (pis, vs) = match output {
-    //       Ok(val) => match val {
-    //         IValue::Tuple(ivalues) => match &ivalues[..] {
-    //             [IValue::Tensor(t1), IValue::Tensor(t2)] => (t1.shallow_clone(), t2.shallow_clone()),
-    //             _ => bail!("unexpected output {:?}", ivalues),
-    //         },
-    //         _ => bail!("unexpected output {:?}", output),
-    //       },
-    //       _ => bail!("forward_is error"),
-    //     };
-    //     pi = pis;
-    //     v = vs;
-    //   }
-    // });
-    let r1 = Vec::<f32>::from(&pi);
-    let r2 = v.double_value(&[0]) as f32;
+    let rs1 = pi.view([self.action_size]);
+    let rs2 = v.view([1]);
+    let r1 = Vec::<f32>::from(rs1);
+    let r2 = rs2.double_value(&[0]) as f32;
     (r1, r2)
   }
   pub fn predict32(net: &NNet, board: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
@@ -121,32 +102,21 @@ impl NNet {
   }
   pub fn predict32_tensor(&self, board: Tensor, num: i64) -> Vec<(Vec<f32>, f32)> {
     let b = board.view([num, 9, self.board_size, self.board_size]);
-    let mut pi: Tensor = Tensor::zeros(&[num, self.board_size*self.board_size+1], tch::kind::FLOAT_CUDA);
+    let mut pi: Tensor = Tensor::zeros(&[num, self.action_size], tch::kind::FLOAT_CUDA);
     let mut v: Tensor = Tensor::zeros(&[num, 1], tch::kind::FLOAT_CUDA);
     if let Some(model) = &self.model {
-      let output = model.forward_is(&[tch::IValue::Tensor(b)]);
-      let res = match output {
-        Ok(val) => match val {
-          IValue::Tuple(ivalues) => match &ivalues[..] {
-              [IValue::Tensor(t1), IValue::Tensor(t2)] => Ok((t1.shallow_clone(), t2.shallow_clone())),
-              _ => Err("unexpected output"),
-          },
-          _ => Err("unexpected output"),
-        },
-        _ => Err("forward_is error"),
-      };
-      if let Ok((pis, vs)) = res {
-        pi = pis;
-        v = vs;
-      }
+      let output = model.forward_t(&b, false);
+      pi = output.narrow(1, 0, self.action_size);
+      v = output.narrow(1, self.action_size, 1);
+    } else if let Some(model) = &self.tmodel {
+      let output = model.forward_t(&b, false);
+      pi = output.narrow(1, 0, self.action_size);
+      v = output.narrow(1, self.action_size, 1);
+    } else {
+      println!("predict32_tensor model not found");
     }
-    // no_grad(|| {
-    //   let (pis, vs) = self.forward(&b, false);
-    //   pi = pis;
-    //   v = vs;
-    // });
     let mut res = Vec::new();
-    let rs1 = pi.view([num, self.board_size*self.board_size+1]);
+    let rs1 = pi.view([num, self.action_size]);
     let rs2 = v.view([num, 1]);
     for i in 0..num {
       let r1 = Vec::<f32>::from(rs1.narrow(0, i, 1));
@@ -155,9 +125,15 @@ impl NNet {
     }
     res
   }
-  pub fn train(&self, trainable_model: &mut TrainableCModule, examples: Vec<&Example>) -> Result<()> {
+  pub fn train(&mut self, examples: Vec<&Example>) -> Result<()> {
     // examples: list of examples, each example is of form (board, pi, v)
     tch::manual_seed(42);
+    let trainable_model;
+    if let Some(model) = &mut self.tmodel {
+      trainable_model = model;
+    } else {
+      panic!("trainable_model not found");
+    }
     let mut optimizer = nn::Adam::default().build(&self.vs, 1e-3)?;
     let epochs = 10;
     let batch_size = 128;
@@ -173,23 +149,24 @@ impl NNet {
         let target_pis = Tensor::of_slice2(&ex.iter().map(|x| &x.pi).collect::<Vec<&Vec<f32>>>()).to_device(self.vs.device());
         let target_vs = Tensor::of_slice(&ex.iter().map(|x| x.v).collect::<Vec<f32>>()).to_device(self.vs.device());
         // compute output
-        let ten = boards.apply_t(trainable_model, true);
-        ten.print();
+        let output = boards.apply_t(trainable_model, true);
+        let out_pi = output.narrow(1, 0 , self.action_size);
+        let out_v = output.narrow(1, self.action_size, 1);
         //let (out_pi, out_v) = boards.apply_t(&trainable_model, true);
-        // let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;
-        // let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
-        // let total_loss = l_pi + l_v;
+        let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;
+        let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
+        let total_loss = l_pi + l_v;
 
-        // optimizer.zero_grad();
-        // total_loss.backward();
-        // optimizer.step();
+        optimizer.zero_grad();
+        total_loss.backward();
+        optimizer.step();
       }
     }
     Ok(())
   }
   pub fn save<T: AsRef<std::path::Path>>(&self, path: T) {
     // self.vs.save(path)
-    if let Some(model) = &self.model {
+    if let Some(model) = &self.tmodel {
       model.save(path);
     }
   }
@@ -199,11 +176,14 @@ impl NNet {
       path
     ).expect("failed loading dualnet model");
     self.model = Some(model);
+    self.tmodel = None;
   }
-  pub fn load_trainable<T: AsRef<std::path::Path>>(&mut self, path: T) -> TrainableCModule {
+  pub fn load_trainable<T: AsRef<std::path::Path>>(&mut self, path: T) {
     // self.vs.load(path)
-    TrainableCModule::load(
+    let mut model = TrainableCModule::load(
       path, self.vs.root()
-    ).expect("failed loading deualnet trainable model")
+    ).expect("failed loading deualnet trainable model");
+    self.tmodel = Some(model);
+    self.model = None;
   }
 }

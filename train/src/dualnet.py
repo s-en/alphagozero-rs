@@ -81,8 +81,9 @@ class DualNet(nn.Module):
         x = self.layers(x)
         pi = self.pi(x).exp()
         v = self.v(x).tanh()
+        res = torch.cat((pi, v), 1)
 
-        return (pi, v)
+        return res
     
     def _make_layer(self, block, c_in, c_out, blocks, stride=1):
         layers = []
@@ -108,9 +109,9 @@ def initialize_weights(m):
 if __name__ == '__main__':
     device = torch.device('cuda:0')
     model = DualNet(5, 26, 32)
-    model = model.to(device)
+    model = model.to(device).half()
     # model.apply(initialize_weights)
-    dummy = torch.rand([16, 9, 5, 5]).to(device)
+    dummy = torch.rand([16, 9, 5, 5]).to(device).half()
     traced_net = torch.jit.trace(model, dummy)
     print(traced_net)
     # for param in model.parameters():
