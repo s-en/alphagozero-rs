@@ -4,6 +4,7 @@ use anyhow::{bail, Result};
 use indicatif::ProgressIterator;
 use std::time::SystemTime;
 use tch::IndexOp;
+use std::time::Instant;
 
 fn randint(max: usize, size: usize, rnd: &mut ThreadRng) -> Vec<usize> {
   let mut vec: Vec<usize> = Vec::with_capacity(size);
@@ -97,15 +98,23 @@ impl NNet {
     (r1, r2)
   }
   pub fn predict32(net: &NNet, board: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
+    let start = Instant::now();
     let b = Tensor::of_slice2(&board).to_device(net.vs.device());
-    net.predict32_tensor(b, board.len() as i64)
+    let res = net.predict32_tensor(b, board.len() as i64);
+    let end = start.elapsed();
+    //println!("{:?}", board);
+    //println!("predict32 {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
+    res
   }
   pub fn predict32_tensor(&self, board: Tensor, num: i64) -> Vec<(Vec<f32>, f32)> {
     let b = board.view([num, 9, self.board_size, self.board_size]);
     let mut pi: Tensor = Tensor::zeros(&[num, self.action_size], tch::kind::FLOAT_CUDA);
     let mut v: Tensor = Tensor::zeros(&[num, 1], tch::kind::FLOAT_CUDA);
     if let Some(model) = &self.model {
+      //let start = Instant::now();
       let output = model.forward_t(&b, false);
+      // let end = start.elapsed();
+      // println!("forward_t {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
       pi = output.narrow(1, 0, self.action_size);
       v = output.narrow(1, self.action_size, 1);
     } else if let Some(model) = &self.tmodel {
@@ -135,7 +144,7 @@ impl NNet {
       panic!("trainable_model not found");
     }
     let mut optimizer = nn::Adam::default().build(&self.vs, 1e-3)?;
-    let epochs = 10;
+    let epochs = 100;
     let batch_size = 128;
     println!("start train");
     let mut rnd = rand::thread_rng();

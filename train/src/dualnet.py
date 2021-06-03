@@ -54,7 +54,7 @@ class DualNet(nn.Module):
         self.conv1 = nn.Conv2d(9, num_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(num_channels)
         self.relu = nn.ReLU(inplace=True)
-        self.layers = self._make_layer(block, num_channels, num_channels, 10, 1)
+        self.layers = self._make_layer(block, num_channels, num_channels, 5, 1)
         self.pi = nn.Sequential(
             nn.Conv2d(num_channels, 32, 1, 1, 0, bias=False), # [1, 32, 5, 5]
             nn.BatchNorm2d(32),
@@ -109,9 +109,9 @@ def initialize_weights(m):
 if __name__ == '__main__':
     device = torch.device('cuda:0')
     model = DualNet(5, 26, 32)
-    model = model.to(device).half()
+    model = model.to(device)
     # model.apply(initialize_weights)
-    dummy = torch.rand([16, 9, 5, 5]).to(device).half()
+    dummy = torch.rand([16, 9, 5, 5]).to(device)
     traced_net = torch.jit.trace(model, dummy)
     print(traced_net)
     # for param in model.parameters():

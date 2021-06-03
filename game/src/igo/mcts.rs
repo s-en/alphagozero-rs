@@ -1,5 +1,6 @@
 use super::*;
 use std::cmp::Ordering;
+use std::time::Instant;
 
 pub fn max_idx(vals: &Vec<f32>) -> usize {
   let index_of_max: Option<usize> = vals
@@ -75,6 +76,7 @@ impl MCTS {
     }
   }
   pub fn get_action_prob<F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>>(&mut self, c_board: &Board, temp: f32, predict: &F) -> Vec<f32> {
+    let start = Instant::now();
     let s = c_board.calc_hash();
     let amax = c_board.action_size();
     let mut sn = self.sim_num;
@@ -123,6 +125,8 @@ impl MCTS {
     let counts: Vec<f32> = counts.iter().map(|&x| x.powf(1.0 / temp)).collect();
     let counts_sum: f32 = counts.iter().sum();
     let probs: Vec<f32> = counts.iter().map(|x| x / counts_sum).collect();
+    // let end = start.elapsed();
+    // println!("getactionprob {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
     probs
   }
   pub fn search(&mut self, c_board: &mut Board, nodes: &mut Vec<((u64, usize), f32)>, root_turn: Turn) -> (f32, Option<(Vec<f32>, u64)>) {
@@ -137,17 +141,7 @@ impl MCTS {
     }
     if !self.ps.contains_key(&s) {
       // leaf node
-      // let (ps, v) = predict(c_board.input());
       let valids = c_board.vec_valid_moves(c_board.turn);
-      // let mut masked_valids: Vec<f32> = valids.iter().enumerate().map(|(i, x)| *x as i32 as f32 * ps[i]).collect();
-      // let sum_ps_s: f32 = masked_valids.iter().sum();
-      // if sum_ps_s > 0.0 {
-      //   masked_valids = masked_valids.iter().map(|x| x / sum_ps_s).collect();
-      // } else {
-      //   println!("all valids moves were masked {:?}", ps);
-      //   let sum_ps_s: i32 = valids.iter().map(|&x| x as i32).sum();
-      //   masked_valids = valids.iter().map(|&x| x as i32 as f32 / sum_ps_s as f32).collect();
-      // }
       self.ps.insert(s, valids.iter().map(|&v| v as i32 as f32).collect());
       self.vs.insert(s, valids);
       self.ns.insert(s, 0);
