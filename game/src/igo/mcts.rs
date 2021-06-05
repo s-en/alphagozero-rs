@@ -67,9 +67,6 @@ impl MCTS {
       for section in sections {
         let (sa, turn) = section;
         let win = v * turn * 1.0;
-        // if win < 0.0 {
-        //   win = 0.0;
-        // }
         self.wsa.insert(*sa, self.wsa[&sa] + win);
         self.qsa.insert(*sa, self.wsa[&sa] / self.nsa[&sa] as f32);
       }
@@ -86,25 +83,26 @@ impl MCTS {
     //   sn *= 2;
     // }
     let mut cnt = 0;
+    let mut inputs: Vec<Vec<f32>> = Vec::new();
+    let mut hashs: Vec<u64> = Vec::new();
+    let mut nodes: Vec<Vec<((u64, usize), f32)>> = Vec::new();
     while cnt <= sn {
-      let mut inputs: Vec<Vec<f32>> = Vec::new();
-      let mut hashs: Vec<u64> = Vec::new();
-      let mut nodes: Vec<Vec<((u64, usize), f32)>> = Vec::new();
-      for _ in 0..16 {
-        let mut b = c_board.clone();
-        let mut nodes_inside: Vec<((u64, usize), f32)> = Vec::new();
-        let (_, leaf) = self.search(&mut b, &mut nodes_inside, root_turn);
-        nodes.push(nodes_inside);
-        if let Some(x) = leaf {
-          let (input, s) = x;
-          inputs.push(input);
-          hashs.push(s);
-        }
-        cnt += 1;
+      let mut nodes_inside: Vec<((u64, usize), f32)> = Vec::new();
+      let mut b = c_board.clone();
+      let (_, leaf) = self.search(&mut b, &mut nodes_inside, root_turn);
+      nodes.push(nodes_inside);
+      if let Some(x) = leaf {
+        let (input, s) = x;
+        inputs.push(input);
+        hashs.push(s);
       }
+      cnt += 1;
       // multiple predicts in one step
-      if inputs.len() >= 1 {
+      if (cnt < sn && inputs.len() >= 16) || cnt == sn && inputs.len() >= 1 {
         self.predict_leaf(&nodes, &inputs, &hashs, predict);
+        inputs = Vec::new();
+        hashs= Vec::new();
+        nodes = Vec::new();
       }
     }
     let mut counts = Vec::new();
@@ -115,7 +113,7 @@ impl MCTS {
       }
       counts.push(val as f32);
     }
-    //println!("counts: {:?}", counts);
+    // println!("counts: {:?}", counts);
     if temp == 0.0 {
       let mut probs = vec![0.0; amax];
       let best_idx = max_idx(&counts);
@@ -145,7 +143,7 @@ impl MCTS {
       self.ps.insert(s, valids.iter().map(|&v| v as i32 as f32).collect());
       self.vs.insert(s, valids);
       self.ns.insert(s, 0);
-      let v_loss = root_turn as i32 as f32 * -1.0;
+      let v_loss = 0.0;//root_turn as i32 as f32 * -1.0;
       let leaf = Some((c_board.input(), s));
       return (v_loss, leaf);
     }
@@ -195,9 +193,9 @@ impl MCTS {
 
     // move back up the tree
     let mut win = v * turn;
-    if win < 0.0 {
-      win = 0.0;
-    }
+    // if win < 0.0 {
+    //   win = 0.0;
+    // }
     if self.nsa.contains_key(&sa) {
       self.wsa.insert(sa, self.wsa[&sa] + win);
       self.nsa.insert(sa, self.nsa[&sa] + 1);

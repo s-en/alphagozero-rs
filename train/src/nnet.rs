@@ -59,6 +59,14 @@ fn basic_layer(p: &nn::Path, c_in: i64, c_out: i64, stride: i64, cnt: i64) -> im
   layer
 }
 
+pub fn learning_rate(epoch: i64) -> f64 {
+  if epoch < 80 {
+    0.005
+  } else {
+    0.002
+  }
+}
+
 impl NNet {
   pub fn new(board_size: i64, action_size: i64, num_channels: i64) -> NNet {
     let vs = nn::VarStore::new(Device::cuda_if_available());
@@ -77,7 +85,7 @@ impl NNet {
     net.predict_tensor(b)
   }
   pub fn predict_tensor(&self, board: Tensor) -> (Vec<f32>, f32) {
-    let b = board.view([9, self.board_size, self.board_size]);
+    let b = board.view([10, self.board_size, self.board_size]);
     let mut pi: Tensor = Tensor::zeros(&[1, self.action_size], tch::kind::FLOAT_CUDA);
     let mut v: Tensor = Tensor::zeros(&[1, 1], tch::kind::FLOAT_CUDA);
     if let Some(model) = &self.model {
@@ -102,12 +110,13 @@ impl NNet {
     let b = Tensor::of_slice2(&board).to_device(net.vs.device());
     let res = net.predict32_tensor(b, board.len() as i64);
     let end = start.elapsed();
-    //println!("{:?}", board);
+    // println!("{:?}", board);
+    // println!("res {:?}", res);
     //println!("predict32 {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
     res
   }
   pub fn predict32_tensor(&self, board: Tensor, num: i64) -> Vec<(Vec<f32>, f32)> {
-    let b = board.view([num, 9, self.board_size, self.board_size]);
+    let b = board.view([num, 10, self.board_size, self.board_size]);
     let mut pi: Tensor = Tensor::zeros(&[num, self.action_size], tch::kind::FLOAT_CUDA);
     let mut v: Tensor = Tensor::zeros(&[num, 1], tch::kind::FLOAT_CUDA);
     if let Some(model) = &self.model {
@@ -134,7 +143,7 @@ impl NNet {
     }
     res
   }
-  pub fn train(&mut self, examples: Vec<&Example>) -> Result<()> {
+  pub fn train(&mut self, examples: Vec<&Example>, lr: f64) -> Result<()> {
     // examples: list of examples, each example is of form (board, pi, v)
     tch::manual_seed(42);
     let trainable_model;
@@ -143,12 +152,14 @@ impl NNet {
     } else {
       panic!("trainable_model not found");
     }
-    let mut optimizer = nn::Adam::default().build(&self.vs, 1e-3)?;
-    let epochs = 100;
-    let batch_size = 128;
+    let mut optimizer = nn::Adam::default().build(&self.vs, lr)?;
+    let epochs = 200;
+    let batch_size = 512;
     println!("start train");
     let mut rnd = rand::thread_rng();
     trainable_model.set_train();
+    // let mut prev_model;
+    // let mut prev_optimizer;
     for i in 0..epochs {
       for j in 0..10 {
         // println!("{} {}", i, j);
@@ -161,14 +172,30 @@ impl NNet {
         let output = boards.apply_t(trainable_model, true);
         let out_pi = output.narrow(1, 0 , self.action_size);
         let out_v = output.narrow(1, self.action_size, 1);
-        //let (out_pi, out_v) = boards.apply_t(&trainable_model, true);
         let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;
         let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
         let total_loss = l_pi + l_v;
+        if i %39 == 0 && j == 5 {
+          println!("{:?}", Vec::<f32>::from(&total_loss));
+        }
 
-        optimizer.zero_grad();
-        total_loss.backward();
-        optimizer.step();
+        let nan = total_loss.isnan().sum(tch::Kind::Float);
+        if i64::from(nan) > 0 {
+          println!("has nan");
+          let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;
+          let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
+          total_loss.print();
+          l_pi.print();
+          l_v.print();
+          println!("target_pis.size {:?}", target_pis.size()[0]);
+          println!("target_vs.size {:?}", target_vs.size()[0]);
+          println!("target_pis {:?}", target_pis);
+          println!("out_pi {:?}", out_pi);
+        } else {
+          optimizer.zero_grad();
+          total_loss.backward();
+          optimizer.step();
+        }
       }
     }
     Ok(())

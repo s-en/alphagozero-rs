@@ -9,6 +9,7 @@ use std::sync::{Mutex, Arc};
 use rand::prelude::*;
 use std::time::SystemTime;
 use std::time::Instant;
+use std::cmp;
 
 extern crate savefile;
 
@@ -27,7 +28,7 @@ fn pretrain(board_size: i64, action_size: i64, num_channels: i64) {
   // train v
   let mut rng = rand::thread_rng();
   let mut net = NNet::new(board_size, action_size, num_channels);
-  net.load_trainable("temp/trained.pt");
+  net.load_trainable("temp/best.pt");
   let mut examples: Vec<Example> = Vec::new();
   let max = 1000;
   for i in 0..max {
@@ -40,28 +41,23 @@ fn pretrain(board_size: i64, action_size: i64, num_channels: i64) {
     // board.action(action_size as u32, Turn::Black);
     
     let mut v: f32 = 0.0 ;//board.count_diff() as f32 / action_size as f32 * 10.0;
-    // let mut v = 0.0;
-    // if board.count_diff() > 0 { v = 1.0; }
-    // if board.count_diff() < 0 { v = -1.0; }
-    let mut pi = vec![0.0; action_size as usize];
+    let mut pi = vec![0.5; action_size as usize];
     if i < max / 2 {
       let tb = Stones::new32(0b11111_11111_11111_11111_11111);
       let tw = Stones::new32(0b00000_00000_00000_00000_00000);
       board.set_stones(Turn::Black, tb);
       board.set_stones(Turn::White, tw);
       v = 1.0;
-      pi[0] = 1.0;
     } else {
       let tb = Stones::new32(0b00000_00000_00000_00000_00000);
       let tw = Stones::new32(0b11111_11111_11111_11111_11111);
       board.set_stones(Turn::Black, tb);
       board.set_stones(Turn::White, tw);
       v = -1.0;
-      pi[1] = 1.0;
     }
-    board.action(action_size as u32, Turn::Black);
-    board.action(action_size as u32, Turn::Black);
-    board.action(action_size as u32, Turn::Black);
+    // board.action(action_size as u32, Turn::Black);
+    // board.action(action_size as u32, Turn::Black);
+    // board.action(action_size as u32, Turn::Black);
     board.turn = Turn::Black;
     if i % 2 == 0 {
       board.turn = Turn::White;
@@ -77,33 +73,30 @@ fn pretrain(board_size: i64, action_size: i64, num_channels: i64) {
   }
   let ex = examples.iter().map(|x| x).collect();
   // // println!("ex {:?}", ex);
-  net.train(ex);
-  net.save("temp/trained.pt");
+  let lr = 0.02;
+  net.train(ex, lr);
+  net.save("temp/best.pt");
 
   let mut board = Board::new(BoardSize::S5);
-  // let tb = Stones::new32(0b00000_00000_00000_00000_00000);
-  // let tw = Stones::new32(0b11111_11111_11111_11111_11111);
-  // board.set_stones(Turn::Black, tb);
-  // board.set_stones(Turn::White, tw);
+  let tb = Stones::new32(0b11111_11111_11111_11111_11111);
+  let tw = Stones::new32(0b00000_00000_00000_00000_00000);
+  board.set_stones(Turn::Black, tb);
+  board.set_stones(Turn::White, tw);
   // board.action(action_size as u32, Turn::Black);
   // board.action(action_size as u32, Turn::Black);
   // board.action(action_size as u32, Turn::Black);
-  for i in 1..20 {
-    board.action(i, Turn::Black);
-  }
-  // board.turn = Turn::White;
+  // for i in 1..20 {
+  //   board.action(i, Turn::Black);
+  // }
+  board.turn = Turn::Black;
   println!("{:?}", board.input());
   let pi = NNet::predict(&net, board.input());
   println!("predict {:?}", pi);
 }
-fn self_play(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64, seed: u64) {
-  let num_eps = 20;
+fn self_play(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64, num_eps: i32) {
   let maxlen_of_queue = 100000;
   let max_history_queue = 40000;
   let mut rng = rand::thread_rng();
-  let mut iteration_train_examples = Examples {
-    values: VecDeque::with_capacity(maxlen_of_queue)
-  };
   let mut black_win_history = Examples {
     values: VecDeque::with_capacity(max_history_queue)
   };
@@ -118,7 +111,7 @@ fn self_play(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
       thread::spawn(move || {
         let mut tnet = NNet::new(board_size, action_size, num_channels);
         tnet.load("temp/best.pt");
-        let mut mcts = MCTS::new(200, 2.0); // reset search tree
+        let mut mcts = MCTS::new(200, 3.0); // reset search tree
         let rng = &mut rand::thread_rng();
         let examples = execute_episode(rng, &mut mcts, &tnet);
         tx1.send(examples).unwrap();
@@ -126,27 +119,23 @@ fn self_play(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
     }
     drop(tx);
     for received in rx {
-      iteration_train_examples.values.extend(received);
+      let (examples, r) = received;
+      for ex in examples {
+        if r == 1 {
+          black_win_history.values.push_back(ex);
+        } else if r == -1 {
+          white_win_history.values.push_back(ex);
+        }
+      }
     }
   }
-
-  // save the iteration examples to the history
-  for ex in iteration_train_examples.values {
-    if ex.board[0] == 1.0 {
-      black_win_history.values.push_back(ex);
-    } else {
-      white_win_history.values.push_back(ex);
-    }
-  }
-  // backup history to a file
-  // NB! the examples were collected using the model from the previous iteration, so (i-1)
-  // save_file(&format!("temp/train_examples_{}.bin", i - 1), 0, &train_examples_history).unwrap();
-  if black_win_history.values.len() > max_history_queue {
-    let cut = black_win_history.values.len() - max_history_queue;
+  let bw_min = cmp::min(cmp::min(black_win_history.values.len(), white_win_history.values.len()), max_history_queue);
+  if black_win_history.values.len() > bw_min {
+    let cut = black_win_history.values.len() - bw_min;
     black_win_history.values.drain(..cut);
   }
-  if white_win_history.values.len() > max_history_queue {
-    let cut = white_win_history.values.len() - max_history_queue;
+  if white_win_history.values.len() > bw_min {
+    let cut = white_win_history.values.len() - bw_min;
     white_win_history.values.drain(..cut);
   }
   println!("example black {}, white {}", black_win_history.values.len(), white_win_history.values.len());
@@ -159,10 +148,6 @@ fn self_play(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
   for e in white_win_history.values {
     train_examples.push(e);
   }
-  let vs = train_examples.iter().map(|x| x.v).collect::<Vec<f32>>();
-  //println!("{:?}", vs);
-  println!("won {:?}", vs.iter().filter(|&x| x > &0.0).sum::<f32>());
-  println!("lose {:?}", vs.iter().filter(|&x| x < &0.0).sum::<f32>());
   let tlen = train_examples.len();
   if tlen > maxlen_of_queue {
     let cut = tlen - maxlen_of_queue;
@@ -170,7 +155,7 @@ fn self_play(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
   }
   train_examples.shuffle(&mut rng);
 }
-fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> Vec<Example> {
+fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> (Vec<Example>, i8) {
   let start = Instant::now();
   let mut examples = Vec::new();
   let mut board = Board::new(BoardSize::S5);
@@ -179,19 +164,17 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> Vec<Exam
   let mut kcnt = 0;
   loop {
     episode_step += 1;
-    let mut temp = 0.5;
+    let mut temp = 0.2;
     if episode_step < temp_threshold {
-      temp = 3.0;
-    }else if episode_step < temp_threshold*2 {
       temp = 1.0;
+    }else if episode_step < temp_threshold*2 {
+      temp = 0.5;
     }
     //println!("step {:?} turn {:?}", board.step, board.turn as i32);
-    // println!("{}", board);
     let mut pi = mcts.get_action_prob(&board, temp, &predict32(net));
-    //mcts.get_win_rate(&board);
-    // if episode_step == 1 {
-    //   println!("pi {:?}", pi);
-    // }
+    // println!("{}", board);
+    // println!("pi {:?}", pi);
+    
     // if episode_step == 1 {
     //   // 初手天元に固定
     //   pi[12] = 1.0;
@@ -207,13 +190,13 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> Vec<Exam
       examples.push(ex);
     }
     let action = dist.sample(rng) as u32;
-    //println!("action {}", action);
     board.action(action, board.turn);
 
     let r = board.game_ended();
 
     if r != 0 {
-      println!("{} {}", r, board.get_kifu_sgf());
+      // println!("{} {}", r, board.get_kifu_sgf());
+      // std::process::exit(0x0100);
       //println!("");
       let v = r as i32;
       for mut ex in &mut examples {
@@ -221,17 +204,17 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> Vec<Exam
         // v: -1.0 white won
          ex.v = v as f32;
       }
-      //println!("{:?}", examples);
+      // println!("{:?}", examples);
       // let end = start.elapsed();
       // println!("execute_episode {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
-      return examples;
+      return (examples, r);
     }
   }
 }
-fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64) {
+fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64, lr: f64) {
   let mut net = NNet::new(board_size, action_size, num_channels);
   let board = Board::new(BoardSize::S5);
-  net.load_trainable("temp/trained.pt");
+  net.load_trainable("temp/best.pt");
   let pi = NNet::predict(&net, board.input());
   println!("before {:?}", pi);
 
@@ -248,14 +231,14 @@ fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
     }
   }
   let ex = examples.iter().map(|x| x).collect();
-  net.train(ex);
+  net.train(ex, lr);
   net.save("temp/trained.pt");
 
   let pi = NNet::predict(&net, board.input());
   println!("after {:?}", pi);
 }
 fn arena(board_size: i64, action_size: i64, num_channels: i64) {
-  let update_threshold = 0.54;
+  let update_threshold = 0.52;
   
   // training new network, keeping a copy of the old one
   println!("PITTING AGAINST PREVIOUS VERSION");
@@ -269,8 +252,8 @@ fn arena(board_size: i64, action_size: i64, num_channels: i64) {
   let mut net = NNet::new(board_size, action_size, num_channels);
   if pwins + nwins == 0 || nwins * 100 / (pwins + nwins) < (update_threshold * 100.0) as u32 {
     println!("REJECTING NEW MODEL");
-    net.load("temp/best.pt");
-    net.save("temp/trained.pt");
+    // net.load("temp/best.pt");
+    // net.save("temp/trained.pt");
   } else {
     println!("ACCEPTING NEW MODEL");
     net.load_trainable("temp/trained.pt");
@@ -344,8 +327,8 @@ pub fn play_games(num: u32, board_size: i64, action_size: i64, num_channels: i64
       let mut pnet = NNet::new(board_size, action_size, num_channels);
       net.load("temp/trained.pt");
       pnet.load("temp/best.pt");
-      let mut pmcts = MCTS::new(100, 0.5);
-      let mut nmcts = MCTS::new(100, 0.5);
+      let mut pmcts = MCTS::new(100, 1.0);
+      let mut nmcts = MCTS::new(100, 1.0);
       let mut player1 = player(&mut pmcts, &pnet, temp, i as u64);
       let mut player2 = player(&mut nmcts, &net, temp, i as u64);
       let game_result = play_game(&mut player1, &mut player2, i);
@@ -370,8 +353,8 @@ pub fn play_games(num: u32, board_size: i64, action_size: i64, num_channels: i64
       let mut pnet = NNet::new(board_size, action_size, num_channels);
       net.load("temp/trained.pt");
       pnet.load("temp/best.pt");
-      let mut pmcts = MCTS::new(100, 0.5);
-      let mut nmcts = MCTS::new(100, 0.5);
+      let mut pmcts = MCTS::new(100, 1.0);
+      let mut nmcts = MCTS::new(100, 1.0);
       let mut player1 = player(&mut pmcts, &pnet, temp, i as u64 + 123445);
       let mut player2 = player(&mut nmcts, &net, temp, i as u64 + 123445);
       let game_result = play_game(&mut player2, &mut player1, i);
@@ -397,29 +380,33 @@ impl Coach {
     let train_examples: Vec<Example> = Vec::new();
     let ex_arc_mut = Arc::new(Mutex::new(train_examples));
     let mut sp_ex = Arc::clone(&ex_arc_mut);
-    pretrain(board_size, action_size, num_channels);
-    // self_play(&mut sp_ex, board_size, action_size, num_channels, 0);
-    // let self_play_handle = thread::spawn(move || {
-    //   for i in 0..1000 {
-    //     println!("start self play {}", i);
-    //     self_play(&mut sp_ex, board_size, action_size, num_channels, i+1);
-    //     println!("end self play {}", i);
-    //   }
-    // });
-    // let mut tn_ex = Arc::clone(&ex_arc_mut);
-    // let train_net_handle = thread::spawn(move || {
-    //   for i in 0..1000 {
-    //     println!("start train {}", i);
-    //     train_net(&mut tn_ex, board_size, action_size, num_channels);
-    //     println!("end train {}", i);
-    //     println!("start arena {}", i);
-    //     arena(board_size, action_size, num_channels);
-    //     println!("end arena {}", i);
-    //   }
-    // });
-    // println!("before join");
-    // self_play_handle.join().unwrap();
-    // train_net_handle.join().unwrap();
-    // println!("learning end");
+    // pretrain(board_size, action_size, num_channels);
+    self_play(&mut sp_ex, board_size, action_size, num_channels, 20);
+    let self_play_handle = thread::spawn(move || {
+      for i in 0..1000 {
+        println!("start self play {}", i);
+        self_play(&mut sp_ex, board_size, action_size, num_channels, 5);
+        println!("end self play {}", i);
+      }
+    });
+    let mut tn_ex = Arc::clone(&ex_arc_mut);
+    let train_net_handle = thread::spawn(move || {
+      for i in 0..10000 {
+        println!("start train {}", i);
+        let mut lr = 0.002;
+        if i > 20 {
+          lr = 0.0002;
+        }
+        train_net(&mut tn_ex, board_size, action_size, num_channels, lr);
+        println!("end train {}", i);
+        println!("start arena {}", i);
+        arena(board_size, action_size, num_channels);
+        println!("end arena {}", i);
+      }
+    });
+    println!("before join");
+    self_play_handle.join().unwrap();
+    train_net_handle.join().unwrap();
+    println!("learning end");
   }
 }

@@ -130,9 +130,9 @@ impl Board {
         true_cnt += 1;
       }
     }
-    if true_cnt == 0 {
+    //if true_cnt == 0 {
       res[amax] = true; // pass
-    }
+    //}
     res
   }
   pub fn valid_moves(&self, color: Turn) -> Stones {
@@ -308,6 +308,7 @@ impl Board {
     let color = self.turn as i32 as f32;
     let s = self.size() as usize;
     let mut vec: Vec<f32> = vec![color; s.pow(2)];
+    vec.append(&mut vec![self.pass_cnt as f32; s.pow(2)]);
     vec.append(&mut self.black.vec());
     vec.append(&mut self.white.vec());
     for i in 0..3 {
