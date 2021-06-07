@@ -191,6 +191,21 @@ impl Board {
     let valids = (kuten & !surround_kuten) | dbeside;
     valids
   }
+  pub fn kill_point(&self, color: Turn) -> Stones {
+    let s = self.size as usize;
+    let bs = s * s;
+    let st = self.stones(color);
+    let op = self.opp_stones(color);
+    let mut kpoint = Stones::new(self.size);
+    for a in 0..bs {
+      let new_try = st | 1 << a;
+      let ds = self.death_stones(op, new_try);
+      if ds != 0 {
+        kpoint = kpoint | 1 << a;
+      }
+    }
+    kpoint
+  }
   pub fn count_diff(&self) -> i32 {
     let b: i32 = self.black.count_ones() as i32;
     let w: i32 = self.white.count_ones() as i32;
@@ -305,16 +320,22 @@ impl Board {
   }
   // input style for nnet
   pub fn input(&self) -> Vec<f32> {
-    let color = self.turn as i32 as f32;
+    let mut color = self.turn as i32;
+    if color < 0 { color = 0; }
     let s = self.size() as usize;
-    let mut vec: Vec<f32> = vec![color; s.pow(2)];
-    vec.append(&mut vec![self.pass_cnt as f32; s.pow(2)]);
+    let bs = s.pow(2);
+    let mut vec: Vec<f32> = Vec::new();
     vec.append(&mut self.black.vec());
     vec.append(&mut self.white.vec());
     for i in 0..3 {
       vec.append(&mut self.history_black[i].vec());
       vec.append(&mut self.history_white[i].vec());
     }
+    vec.append(&mut vec![color as f32; bs]);
+    let valids: Vec<f32> = self.vec_valid_moves(self.turn).iter().map(|&v| v as i32 as f32).collect();
+    vec.append(&mut valids[0..bs].to_vec());
+    vec.append(&mut self.kill_point(self.turn).vec());
+    vec.append(&mut vec![self.pass_cnt as f32; bs]);
     vec
   }
   pub fn canonical_form(&self, turn: Turn) -> Board {

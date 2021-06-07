@@ -1,5 +1,7 @@
 # alphagozero-rsa
 
+wasm-pack build
+
 cargo build --target=wasm32-unknown-unknown --release --lib
 
 

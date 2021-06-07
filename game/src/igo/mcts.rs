@@ -1,6 +1,5 @@
 use super::*;
 use std::cmp::Ordering;
-use std::time::Instant;
 
 pub fn max_idx(vals: &Vec<f32>) -> usize {
   let index_of_max: Option<usize> = vals
@@ -73,7 +72,6 @@ impl MCTS {
     }
   }
   pub fn get_action_prob<F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>>(&mut self, c_board: &Board, temp: f32, predict: &F) -> Vec<f32> {
-    let start = Instant::now();
     let s = c_board.calc_hash();
     let amax = c_board.action_size();
     let mut sn = self.sim_num;

@@ -85,7 +85,7 @@ impl NNet {
     net.predict_tensor(b)
   }
   pub fn predict_tensor(&self, board: Tensor) -> (Vec<f32>, f32) {
-    let b = board.view([10, self.board_size, self.board_size]);
+    let b = board.view([12, self.board_size, self.board_size]);
     let mut pi: Tensor = Tensor::zeros(&[1, self.action_size], tch::kind::FLOAT_CUDA);
     let mut v: Tensor = Tensor::zeros(&[1, 1], tch::kind::FLOAT_CUDA);
     if let Some(model) = &self.model {
@@ -116,7 +116,7 @@ impl NNet {
     res
   }
   pub fn predict32_tensor(&self, board: Tensor, num: i64) -> Vec<(Vec<f32>, f32)> {
-    let b = board.view([num, 10, self.board_size, self.board_size]);
+    let b = board.view([num, 12, self.board_size, self.board_size]);
     let mut pi: Tensor = Tensor::zeros(&[num, self.action_size], tch::kind::FLOAT_CUDA);
     let mut v: Tensor = Tensor::zeros(&[num, 1], tch::kind::FLOAT_CUDA);
     if let Some(model) = &self.model {
@@ -176,7 +176,7 @@ impl NNet {
         let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
         let total_loss = l_pi + l_v;
         if i %39 == 0 && j == 5 {
-          println!("{:?}", Vec::<f32>::from(&total_loss));
+          println!("loss {:?}", Vec::<f32>::from(&total_loss));
         }
 
         let nan = total_loss.isnan().sum(tch::Kind::Float);
