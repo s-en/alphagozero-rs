@@ -2,55 +2,67 @@ use super::*;
 
 use rand::distributions::WeightedIndex;
 use std::collections::VecDeque;
-use indicatif::ProgressIterator;
 use std::thread;
 use std::sync::mpsc;
 use std::sync::{Mutex, Arc};
-use rand::prelude::*;
-use std::time::SystemTime;
 use std::time::Instant;
 use std::cmp;
 
 extern crate savefile;
 
-fn predict32<'a>(net: &'a NNet) -> Box<dyn Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> + 'a> {
-  Box::new(move |board| -> Vec<(Vec<f32>, f32)> {
-    NNet::predict32(net, board)
-  })
+fn self_play_sim(arc_examples: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64, num_eps: i32, sim_num: i32) {
+  let maxlen_of_queue = 100000;
+  let mut rng = rand::thread_rng();
+  let (tx, rx) = mpsc::channel();
+  for _ in 0..(sim_num-1) {
+    let tx1 = mpsc::Sender::clone(&tx);
+    thread::spawn(move || {
+      let examples = self_play(board_size, action_size, num_channels, num_eps);
+      tx1.send(examples).unwrap();
+    });
+  }
+  thread::spawn(move || {
+    let examples = self_play(board_size, action_size, num_channels, num_eps);
+    tx.send(examples).unwrap();
+  });
+  {
+    let mut results = vec![];
+    for examples in rx {
+      results.extend(examples);
+    }
+    let train_examples = &mut *arc_examples.lock().unwrap();
+    train_examples.extend(results);
+    let tlen = train_examples.len();
+    if tlen > maxlen_of_queue {
+      let cut = tlen - maxlen_of_queue;
+      train_examples.drain(..cut);
+    }
+    train_examples.shuffle(&mut rng);
+  }
 }
 
-fn self_play(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64, num_eps: i32) {
-  let maxlen_of_queue = 100000;
+fn self_play(board_size: i64, action_size: i64, num_channels: i64, num_eps: i32) -> Vec<Example> {
   let max_history_queue = 40000;
-  let mut rng = rand::thread_rng();
+  let rng = &mut rand::thread_rng();
   let mut black_win_history = Examples {
     values: VecDeque::with_capacity(max_history_queue)
   };
   let mut white_win_history = Examples {
     values: VecDeque::with_capacity(max_history_queue)
   };
+  let mut tnet = NNet::new(board_size, action_size, num_channels);
+  tnet.load("temp/best.pt");
   for _ in 0..num_eps {
-    let (tx, rx) = mpsc::channel();
-    for ne in 0..5 {
-      let tx1 = mpsc::Sender::clone(&tx);
-      thread::spawn(move || {
-        let mut tnet = NNet::new(board_size, action_size, num_channels);
-        tnet.load("temp/best.pt");
-        let mut mcts = MCTS::new(200, 3.0); // reset search tree
-        let rng = &mut rand::thread_rng();
-        let examples = execute_episode(rng, &mut mcts, &tnet);
-        tx1.send(examples).unwrap();
-      });
-    }
-    drop(tx);
-    for received in rx {
-      let (examples, r) = received;
-      for ex in examples {
-        if r == 1 {
-          black_win_history.values.push_back(ex);
-        } else if r == -1 {
-          white_win_history.values.push_back(ex);
-        }
+    let mut mcts = MCTS::new(200, 3.0); // reset search tree
+    let ep_results = execute_episode(rng, &mut mcts, &tnet);
+    //println!("before await");
+    let (examples, r) = ep_results;
+    //println!("after await examples:{}", examples.len());
+    for ex in examples {
+      if r == 1 {
+        black_win_history.values.push_back(ex);
+      } else if r == -1 {
+        white_win_history.values.push_back(ex);
       }
     }
   }
@@ -63,22 +75,18 @@ fn self_play(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
     let cut = white_win_history.values.len() - bw_min;
     white_win_history.values.drain(..cut);
   }
-  println!("example black {}, white {}", black_win_history.values.len(), white_win_history.values.len());
+  // println!("example black {}, white {}", black_win_history.values.len(), white_win_history.values.len());
 
   // shuffle examples before training
-  let train_examples = &mut *ex_arc_mut.lock().unwrap();
+  let mut results: Vec<Example> = Vec::new();
+  //let train_examples = &mut *ex_arc_mut.lock().unwrap();
   for e in black_win_history.values {
-    train_examples.push(e);
+    results.push(e);
   }
   for e in white_win_history.values {
-    train_examples.push(e);
+    results.push(e);
   }
-  let tlen = train_examples.len();
-  if tlen > maxlen_of_queue {
-    let cut = tlen - maxlen_of_queue;
-    train_examples.drain(..cut);
-  }
-  train_examples.shuffle(&mut rng);
+  results
 }
 fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> (Vec<Example>, i8) {
   let start = Instant::now();
@@ -87,6 +95,9 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> (Vec<Exa
   let mut episode_step = 0;
   let temp_threshold = 5;
   let mut kcnt = 0;
+  let predict32 = |inputs: Vec<Vec<f32>>| {
+    NNet::predict32(net, inputs)
+  };
   loop {
     episode_step += 1;
     let mut temp = 0.2;
@@ -96,7 +107,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> (Vec<Exa
       temp = 0.5;
     }
     //println!("step {:?} turn {:?}", board.step, board.turn as i32);
-    let mut pi = mcts.get_action_prob(&board, temp, &predict32(net));
+    let mut pi = mcts.get_action_prob(&board, temp, &predict32);
     // println!("{}", board);
     // println!("pi {:?}", pi);
     
@@ -152,7 +163,7 @@ fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
     }
   }
   let ex = examples.iter().map(|x| x).collect();
-  net.train(ex, lr);
+  let _ = net.train(ex, lr);
   net.save("temp/trained.pt");
 
   let pi = NNet::predict(&net, board.input());
@@ -173,15 +184,13 @@ fn arena(board_size: i64, action_size: i64, num_channels: i64) {
   let mut net = NNet::new(board_size, action_size, num_channels);
   if pwins + nwins == 0 || nwins * 100 / (pwins + nwins) < (update_threshold * 100.0) as u32 {
     println!("REJECTING NEW MODEL");
-    // net.load("temp/best.pt");
-    // net.save("temp/trained.pt");
   } else {
     println!("ACCEPTING NEW MODEL");
     net.load_trainable("temp/trained.pt");
     net.save("temp/best.pt");
   }
 }
-fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32, seed: u64) -> Box<dyn FnMut(&mut Board) -> usize + 'a> {
+fn player<'a>(_mcts: &'a mut MCTS, _net: NNet, temp: f32, seed: u64) -> Box<dyn FnMut(&mut Board) -> usize + 'a> {
   let mut rng = rand::thread_rng();
   Box::new(move |x: &mut Board| -> usize {
     if temp >= 1.0 {
@@ -192,7 +201,10 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32, seed: u64) -> Box<
       // println!("{:?}", valids);
       valids[0]
     } else {
-      let probs = _mcts.get_action_prob(&x, temp, &predict32(_net));
+      let predict32 = |inputs: Vec<Vec<f32>>| {
+        NNet::predict32(&_net, inputs)
+      };
+      let probs = _mcts.get_action_prob(&x, temp, &predict32);
       // println!("{:?}", probs);
       // mcts::max_idx(&probs)
       let dist = WeightedIndex::new(&probs).unwrap();
@@ -250,8 +262,8 @@ pub fn play_games(num: u32, board_size: i64, action_size: i64, num_channels: i64
       pnet.load("temp/best.pt");
       let mut pmcts = MCTS::new(100, 1.0);
       let mut nmcts = MCTS::new(100, 1.0);
-      let mut player1 = player(&mut pmcts, &pnet, temp, i as u64);
-      let mut player2 = player(&mut nmcts, &net, temp, i as u64);
+      let mut player1 = player(&mut pmcts, pnet, temp, i as u64);
+      let mut player2 = player(&mut nmcts, net, temp, i as u64);
       let game_result = play_game(&mut player1, &mut player2, i);
       tx1.send(game_result).unwrap();
     });
@@ -276,8 +288,8 @@ pub fn play_games(num: u32, board_size: i64, action_size: i64, num_channels: i64
       pnet.load("temp/best.pt");
       let mut pmcts = MCTS::new(100, 1.0);
       let mut nmcts = MCTS::new(100, 1.0);
-      let mut player1 = player(&mut pmcts, &pnet, temp, i as u64 + 123445);
-      let mut player2 = player(&mut nmcts, &net, temp, i as u64 + 123445);
+      let mut player1 = player(&mut pmcts, pnet, temp, i as u64 + 123445);
+      let mut player2 = player(&mut nmcts, net, temp, i as u64 + 123445);
       let game_result = play_game(&mut player2, &mut player1, i);
       tx1.send(game_result).unwrap();
     });
@@ -299,20 +311,26 @@ impl Coach {
     let action_size = self.action_size;
     let num_channels = self.num_channels;
     let train_examples: Vec<Example> = Vec::new();
-    let ex_arc_mut = Arc::new(Mutex::new(train_examples));
+    let mut ex_arc_mut = Arc::new(Mutex::new(train_examples));
     let mut sp_ex = Arc::clone(&ex_arc_mut);
-    self_play(&mut sp_ex, board_size, action_size, num_channels, 20);
+    let mut tn_ex = Arc::clone(&ex_arc_mut);
+    println!("before self play");
+    {
+      self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 10, 12);
+      println!("after self play {:?}", sp_ex.lock().unwrap().len());
+    }
+
     let self_play_handle = thread::spawn(move || {
       for i in 0..1000 {
-        println!("start self play {}", i);
-        self_play(&mut sp_ex, board_size, action_size, num_channels, 5);
+        println!("self_play start {}", i);
+        self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 10, 8);
+        println!("self_play end {}", i);
       }
     });
-    let mut tn_ex = Arc::clone(&ex_arc_mut);
     let train_net_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("start train {}", i);
-        let mut lr = 0.002;
+        let mut lr = 0.0005;
         if i > 20 {
           lr = 0.0002;
         }

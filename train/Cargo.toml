@@ -18,6 +18,7 @@ rand = { version = "0.6.5", features = ["wasm-bindgen"] }
 savefile="0.7"
 savefile-derive="0.7"
 az_game = { path = "../game" }
+futures = "0.3"
 
 [dev-dependencies]
 criterion = "0.3"

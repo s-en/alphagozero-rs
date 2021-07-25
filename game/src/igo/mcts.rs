@@ -1,5 +1,6 @@
 use super::*;
 use std::cmp::Ordering;
+use std::future::Future;
 
 pub fn max_idx(vals: &Vec<f32>) -> usize {
   let index_of_max: Option<usize> = vals
@@ -43,7 +44,10 @@ impl MCTS {
     //println!("");
     0.0
   }
-  fn predict_leaf<F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>>(&mut self, nodes: &Vec<Vec<((u64, usize), f32)>>, inputs: &Vec<Vec<f32>>, hashs: &Vec<u64>, predict: &F) {
+  fn predict_leaf<F>(&mut self, nodes: &Vec<Vec<((u64, usize), f32)>>, inputs: &Vec<Vec<f32>>, hashs: &Vec<u64>, predict: &F)
+    where 
+      F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>
+    {
     let iv = inputs.to_vec();
     let batch_size = iv.len();
     let predicts = predict(iv);
@@ -71,7 +75,10 @@ impl MCTS {
       }
     }
   }
-  pub fn get_action_prob<F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>>(&mut self, c_board: &Board, temp: f32, predict: &F) -> Vec<f32> {
+  pub fn get_action_prob<F>(&mut self, c_board: &Board, temp: f32, predict: &F) -> Vec<f32>
+    where 
+      F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>
+    {
     let s = c_board.calc_hash();
     let amax = c_board.action_size();
     let mut sn = self.sim_num;
@@ -151,6 +158,7 @@ impl MCTS {
 
     // pick best action
     let amax = c_board.action_size();
+    let mut temp: Vec<f32> = Vec::new();
     for a in 0..amax {
       if !valids[a] { continue; }
       let u: f32;
@@ -161,6 +169,7 @@ impl MCTS {
         u = self.cpuct * self.ps[&s][a] * (self.ns[&s] as f32 + 1e-8).sqrt();
       }
       //println!("s:{:?} a:{:?} u:{:?}", s, a, u);
+      temp.push(u);
       if u > cur_best {
         cur_best = u;
         best_act = a as isize;

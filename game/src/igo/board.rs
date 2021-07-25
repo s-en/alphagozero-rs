@@ -68,6 +68,38 @@ impl Board {
       Turn::White => self.black
     }
   }
+  pub fn to_vec(&self) -> Vec<f32> {
+    let mut stones: Vec<f32> = Vec::new();
+    let s = self.size as usize;
+    let max = s * s;
+    for i in 0..max {
+      let mut a: f32 = 0.0;
+      if self.black >> i & 1 == 1 {
+        a = 1.0;
+      }
+      if self.white >> i & 1 == 1 {
+        a = -1.0;
+      }
+      stones.push(a);
+    }
+    stones
+  }
+  pub fn set_vec(&mut self, vec: Vec<f32>) {
+    let s = self.size as usize;
+    let max = s * s;
+    self.black = self.black & 0;
+    self.white = self.white & 0;
+    for i in 0..max {
+      if let Some(&a) = vec.get(i) {
+        if a > 0.1 {
+          self.black = self.black | 1 << i;
+        }
+        if a < -0.1 {
+          self.white = self.white | 1 << i;
+        }
+      }
+    }
+  }
   fn history(&self, color: Turn) -> [Stones; HIST_SIZE] {
     match color {
       Turn::Black => self.history_black,

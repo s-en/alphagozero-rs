@@ -146,6 +146,18 @@ impl Stones {
     }
     vec
   }
+  pub fn set_vec(&mut self, svec: Vec<f32>) {
+    let s = self.size();
+    let smax = s * s;
+    *self = *self & 0;
+    for i in 0..smax {
+      if let Some(&action) = svec.get(i) {
+        if action > 0.0 {
+          *self = *self | 1 << i;
+        }
+      }
+    }
+  }
 }
 
 macro_rules! add_op {

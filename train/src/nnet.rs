@@ -8,6 +8,9 @@ use std::time::Instant;
 
 fn randint(max: usize, size: usize, rnd: &mut ThreadRng) -> Vec<usize> {
   let mut vec: Vec<usize> = Vec::with_capacity(size);
+  if max <= 0 {
+    println!("randint too small!! {}", max);
+  }
   for _ in 0..size {
     vec.push(rnd.gen_range(0, max) as usize);
   };
@@ -153,49 +156,46 @@ impl NNet {
       panic!("trainable_model not found");
     }
     let mut optimizer = nn::Adam::default().build(&self.vs, lr)?;
-    let epochs = 200;
+    let epochs: i32 = examples.len() as i32 / 300 + 1;
     let batch_size = 512;
-    println!("start train");
+    println!("start train examples:{}", examples.len());
     let mut rnd = rand::thread_rng();
     trainable_model.set_train();
     // let mut prev_model;
     // let mut prev_optimizer;
     for i in 0..epochs {
-      for j in 0..10 {
-        // println!("{} {}", i, j);
-        let sample_ids = randint(examples.len(), batch_size, &mut rnd);
-        let ex: Vec<&Example> = examples.iter().enumerate().filter(|(i, _)| sample_ids.contains(i)).map(|(_, e)| *e).collect();
-        let boards = Tensor::of_slice2(&ex.iter().map(|x| &x.board).collect::<Vec<&Vec<f32>>>()).to_device(self.vs.device());
-        let target_pis = Tensor::of_slice2(&ex.iter().map(|x| &x.pi).collect::<Vec<&Vec<f32>>>()).to_device(self.vs.device());
-        let target_vs = Tensor::of_slice(&ex.iter().map(|x| x.v).collect::<Vec<f32>>()).to_device(self.vs.device());
-        // compute output
-        let output = boards.apply_t(trainable_model, true);
-        let out_pi = output.narrow(1, 0 , self.action_size);
-        let out_v = output.narrow(1, self.action_size, 1);
+      let sample_ids = randint(examples.len(), batch_size, &mut rnd);
+      let ex: Vec<&Example> = examples.iter().enumerate().filter(|(i, _)| sample_ids.contains(i)).map(|(_, e)| *e).collect();
+      let boards = Tensor::of_slice2(&ex.iter().map(|x| &x.board).collect::<Vec<&Vec<f32>>>()).to_device(self.vs.device());
+      let target_pis = Tensor::of_slice2(&ex.iter().map(|x| &x.pi).collect::<Vec<&Vec<f32>>>()).to_device(self.vs.device());
+      let target_vs = Tensor::of_slice(&ex.iter().map(|x| x.v).collect::<Vec<f32>>()).to_device(self.vs.device());
+      // compute output
+      let output = boards.apply_t(trainable_model, true);
+      let out_pi = output.narrow(1, 0 , self.action_size);
+      let out_v = output.narrow(1, self.action_size, 1);
+      let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;
+      let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
+      let total_loss = l_pi + l_v;
+      if i % (epochs / 5 + 1) == 0 {
+        println!("loss {:?}", Vec::<f32>::from(&total_loss));
+      }
+
+      let nan = total_loss.isnan().sum(tch::Kind::Float);
+      if i64::from(nan) > 0 {
+        println!("has nan");
         let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;
         let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
-        let total_loss = l_pi + l_v;
-        if i %39 == 0 && j == 5 {
-          println!("loss {:?}", Vec::<f32>::from(&total_loss));
-        }
-
-        let nan = total_loss.isnan().sum(tch::Kind::Float);
-        if i64::from(nan) > 0 {
-          println!("has nan");
-          let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;
-          let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
-          total_loss.print();
-          l_pi.print();
-          l_v.print();
-          println!("target_pis.size {:?}", target_pis.size()[0]);
-          println!("target_vs.size {:?}", target_vs.size()[0]);
-          println!("target_pis {:?}", target_pis);
-          println!("out_pi {:?}", out_pi);
-        } else {
-          optimizer.zero_grad();
-          total_loss.backward();
-          optimizer.step();
-        }
+        total_loss.print();
+        l_pi.print();
+        l_v.print();
+        println!("target_pis.size {:?}", target_pis.size()[0]);
+        println!("target_vs.size {:?}", target_vs.size()[0]);
+        println!("target_pis {:?}", target_pis);
+        println!("out_pi {:?}", out_pi);
+      } else {
+        optimizer.zero_grad();
+        total_loss.backward();
+        optimizer.step();
       }
     }
     Ok(())
