@@ -53,6 +53,15 @@ mod board {
        oo---\n\
        oo-o-\n"
     );
+    let v = board.valid_moves_for_train(w);
+    assert_eq!(
+      format!("{}", v),
+      "--o--\n\
+       ----o\n\
+       -----\n\
+       oo---\n\
+       oo-o-\n"
+    );
   }
   #[test]
   fn valid_moves_2_5x5() {
@@ -78,6 +87,52 @@ mod board {
       "ooooo\n\
        ooooo\n\
        o-ooo\n\
+       -o-o-\n\
+       o-o-o\n"
+    );
+    let v = board.valid_moves_for_train(w);
+    assert_eq!(
+      format!("{}", v),
+      "ooooo\n\
+       ooooo\n\
+       o-ooo\n\
+       ---o-\n\
+       -----\n"
+    );
+  }
+  #[test]
+  fn valid_moves_ignore_suicide_5x5() {
+    let mut board = Board::new(BoardSize::S5);
+    let b = Turn::Black;
+    let w = Turn::White;
+    let tb = Stones::new32(0b01010_10101_00010_00000_00000);
+    let tw = Stones::new32(0b00000_00000_00000_00000_00000);
+    board.set_stones(b, tb);
+    board.set_stones(w, tw);
+    assert_eq!(
+      format!("{}", board),
+      "012345\n\
+       1-----\n\
+       2-----\n\
+       3-o---\n\
+       4o-o-o\n\
+       5-o-o-\n"
+    );
+    let v = board.valid_moves(w);
+    assert_eq!(
+      format!("{}", v),
+      "ooooo\n\
+       ooooo\n\
+       o-ooo\n\
+       ---o-\n\
+       -----\n"
+    );
+    let v = board.valid_moves_for_train(w);
+    assert_eq!(
+      format!("{}", v),
+      "ooooo\n\
+       ooooo\n\
+       o-ooo\n\
        ---o-\n\
        -----\n"
     );
@@ -91,7 +146,7 @@ mod board {
     let tw = Stones::new32(0b00000_10100_11101_01000_10000);
     board.set_stones(b, tb);
     board.set_stones(w, tw);
-    let v = board.vec_valid_moves(w);
+    let v = board.vec_valid_moves_for_train(w);
     assert_eq!(
       v,
       vec![
@@ -115,7 +170,8 @@ mod board {
     board.set_stones(w, tw);
 
     board.action_xy(5, 5, w);
-    let v = board.valid_moves(b);
+    println!("{}", board);
+    let v = board.valid_moves_for_train(b);
     assert_eq!(
       format!("{}", v),
       "ooooo\n\
@@ -125,7 +181,7 @@ mod board {
        oo---\n"
     );
     board.action_xy(1, 1, b);
-    let v = board.valid_moves(b);
+    let v = board.valid_moves_for_train(b);
     assert_eq!(
       format!("{}", v),
       "-oooo\n\
@@ -154,6 +210,7 @@ mod board {
         1.,1.,1.,1.,1.,
         0.
       ];
+      println!("turn {:?}", board.turn as i32);
       let sym = board.symmetries(pi);
       assert_eq!(
         sym[0],

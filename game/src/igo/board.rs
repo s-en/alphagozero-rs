@@ -70,34 +70,28 @@ impl Board {
   }
   pub fn to_vec(&self) -> Vec<f32> {
     let mut stones: Vec<f32> = Vec::new();
-    let s = self.size as usize;
-    let max = s * s;
-    for i in 0..max {
-      let mut a: f32 = 0.0;
-      if self.black >> i & 1 == 1 {
-        a = 1.0;
-      }
-      if self.white >> i & 1 == 1 {
-        a = -1.0;
-      }
-      stones.push(a);
+    stones.extend(self.black.vec());
+    stones.extend(self.white.vec());
+    for h in self.history_black {
+      stones.extend(h.vec());
+    }
+    for h in self.history_white {
+      stones.extend(h.vec());
     }
     stones
   }
   pub fn set_vec(&mut self, vec: Vec<f32>) {
     let s = self.size as usize;
     let max = s * s;
-    self.black = self.black & 0;
-    self.white = self.white & 0;
-    for i in 0..max {
-      if let Some(&a) = vec.get(i) {
-        if a > 0.1 {
-          self.black = self.black | 1 << i;
-        }
-        if a < -0.1 {
-          self.white = self.white | 1 << i;
-        }
-      }
+    if vec.len() < 100 {
+      panic!("len {}", vec.len());
+    }
+    self.black.set_vec(vec[0..max].to_vec());
+    self.white.set_vec(vec[max..max*2].to_vec());
+    let hist_len = self.history_black.len();
+    for i in 0..hist_len {
+      self.history_black[i].set_vec(vec[max*(2+i)..max*(3+i)].to_vec());
+      self.history_white[i].set_vec(vec[max*(2+i+hist_len)..max*(3+i+hist_len)].to_vec());
     }
   }
   fn history(&self, color: Turn) -> [Stones; HIST_SIZE] {
@@ -154,6 +148,17 @@ impl Board {
     let stones = self.valid_moves(color);
     let amax = self.action_size() - 1;
     let mut res: Vec<bool> = vec![false; self.action_size()];
+    for i in 0..amax {
+      let key = stones >> i & 1 == 1;
+      res[i] = key;
+    }
+    res[amax] = true; // pass
+    res
+  }
+  pub fn vec_valid_moves_for_train(&self, color: Turn) -> Vec<bool> {
+    let stones = self.valid_moves_for_train(color);
+    let amax = self.action_size() - 1;
+    let mut res: Vec<bool> = vec![false; self.action_size()];
     let mut true_cnt = 0;
     for i in 0..amax {
       let key = stones >> i & 1 == 1;
@@ -162,12 +167,53 @@ impl Board {
         true_cnt += 1;
       }
     }
-    //if true_cnt == 0 {
+    if true_cnt == 0 {
       res[amax] = true; // pass
-    //}
+    }
     res
   }
   pub fn valid_moves(&self, color: Turn) -> Stones {
+    let s = self.size as usize;
+    let bw = self.black | self.white;
+    let st = self.stones(color);
+    let op = self.opp_stones(color);
+    let hist = self.history(color);
+    let opp_hist = self.opp_history(color);
+    let kuten = self.mask(!bw);
+    // kuten where surrounded by same color stones
+    let op_surround_kuten = kuten & (
+      (op >> 1 | self.edge(Dir::Right)) &
+      (op << 1 | self.edge(Dir::Left)) &
+      (op >> s | self.edge(Dir::Down)) &
+      (op << s | self.edge(Dir::Up)));
+
+    // find for kou
+    let mut kou = Stones::new(self.size);
+    let mut suicide = Stones::new(self.size);
+    let mut st_try = op_surround_kuten;
+    while st_try != 0 {
+      // try adding stone where surrounded by stones
+      let rbit = st_try & ((!st_try) + 1);
+      st_try = st_try ^ rbit; // remove right end bit
+      // try st
+      let new_try = st | rbit;
+      let ds = self.death_stones(op, new_try); // kill oponent stones first
+      let killed_op = op ^ ds;
+      let ds = self.death_stones(new_try, killed_op); // kill self stone next
+      let killed_st = new_try ^ ds;
+      if hist.contains(&killed_st) && opp_hist.contains(&killed_op) {
+        // ignore kou
+        kou = kou | rbit;
+      } else {
+        // ignore suicide
+        suicide = suicide | ds;
+      }
+    }
+    // exclude kou
+    let valids = kuten ^ kou ^ suicide;
+    valids
+  }
+  pub fn valid_moves_for_train(&self, color: Turn) -> Stones {
     let s = self.size as usize;
     let bw = self.black | self.white;
     let st = self.stones(color);
@@ -243,16 +289,20 @@ impl Board {
     let w: i32 = self.white.count_ones() as i32;
     b - w
   }
-  pub fn game_ended(&self) -> i8 {
+  pub fn game_ended(&self, auto_resign: bool) -> i8 {
     let s = self.size().pow(2);
-    if self.pass_cnt < 2 && self.step < s * 2 {
+    if self.pass_cnt < 2 && self.step < s * 3{
       return 0;
+      // pass twice
+      // step over *3 times
     }
-    if self.count_diff() > 0 { return 1; }
+    let diff = self.count_diff();
+    if auto_resign && diff.abs() < s as i32 / 2 {
+      return 0;
+      // win large amout
+    }
+    if diff > 0 { return 1; }
     return -1;
-    // if self.black >> 12 & 1 == 1 { return 1; }
-    // if self.white >> 12 & 1 == 1 { return -1; }
-    // return 0;
   }
   pub fn get_kifu_sgf(&self) -> String {
     let mut kifu = "(;GM[1]SZ[5];".to_string();

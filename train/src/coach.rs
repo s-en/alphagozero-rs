@@ -52,9 +52,9 @@ fn self_play(board_size: i64, action_size: i64, num_channels: i64, num_eps: i32)
   };
   let mut tnet = NNet::new(board_size, action_size, num_channels);
   tnet.load("temp/best.pt");
-  for _ in 0..num_eps {
+  for i in 0..num_eps {
     let mut mcts = MCTS::new(200, 3.0); // reset search tree
-    let ep_results = execute_episode(rng, &mut mcts, &tnet);
+    let ep_results = execute_episode(rng, &mut mcts, &tnet, i);
     //println!("before await");
     let (examples, r) = ep_results;
     //println!("after await examples:{}", examples.len());
@@ -88,7 +88,7 @@ fn self_play(board_size: i64, action_size: i64, num_channels: i64, num_eps: i32)
   }
   results
 }
-fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> (Vec<Example>, i8) {
+fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i32) -> (Vec<Example>, i8) {
   let start = Instant::now();
   let mut examples = Vec::new();
   let mut board = Board::new(BoardSize::S5);
@@ -98,6 +98,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> (Vec<Exa
   let predict32 = |inputs: Vec<Vec<f32>>| {
     NNet::predict32(net, inputs)
   };
+  let for_train = eps_cnt % 2 == 0;
   loop {
     episode_step += 1;
     let mut temp = 0.2;
@@ -107,9 +108,10 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> (Vec<Exa
       temp = 0.5;
     }
     //println!("step {:?} turn {:?}", board.step, board.turn as i32);
-    let mut pi = mcts.get_action_prob(&board, temp, &predict32);
+    let mut pi = mcts.get_action_prob(&board, temp, &predict32, for_train);
     // println!("{}", board);
-    // println!("pi {:?}", pi);
+    //println!("pi {:?}", pi);
+    // println!("wi {:?}", WeightedIndex::new(&pi));
     
     let dist = WeightedIndex::new(&pi).unwrap();
     let sym = board.symmetries(pi);
@@ -124,7 +126,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet) -> (Vec<Exa
     let action = dist.sample(rng) as u32;
     board.action(action, board.turn);
 
-    let r = board.game_ended();
+    let r = board.game_ended(true);
 
     if r != 0 {
       // println!("{} {}", r, board.get_kifu_sgf());
@@ -190,7 +192,7 @@ fn arena(board_size: i64, action_size: i64, num_channels: i64) {
     net.save("temp/best.pt");
   }
 }
-fn player<'a>(_mcts: &'a mut MCTS, _net: NNet, temp: f32, seed: u64) -> Box<dyn FnMut(&mut Board) -> usize + 'a> {
+fn player<'a>(_mcts: &'a mut MCTS, _net: NNet, temp: f32, count: u64) -> Box<dyn FnMut(&mut Board) -> usize + 'a> {
   let mut rng = rand::thread_rng();
   Box::new(move |x: &mut Board| -> usize {
     if temp >= 1.0 {
@@ -204,7 +206,8 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: NNet, temp: f32, seed: u64) -> Box<dyn 
       let predict32 = |inputs: Vec<Vec<f32>>| {
         NNet::predict32(&_net, inputs)
       };
-      let probs = _mcts.get_action_prob(&x, temp, &predict32);
+      let for_train = false;
+      let probs = _mcts.get_action_prob(&x, temp, &predict32, for_train);
       // println!("{:?}", probs);
       // mcts::max_idx(&probs)
       let dist = WeightedIndex::new(&probs).unwrap();
@@ -212,15 +215,14 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: NNet, temp: f32, seed: u64) -> Box<dyn 
     }
   })
 }
-pub fn play_game<F: FnMut(&mut Board) -> usize>(player1: &mut F, player2: & mut F, rep: u32) -> i8 {
+pub fn play_game<F: FnMut(&mut Board) -> usize>(player1: &mut F, player2: & mut F, count: u32) -> i8 {
   let players = [player2, player1];
   let mut cur_player = 1;
   let mut board = Board::new(BoardSize::S5);
   let mut it = 0;
-  while board.game_ended() == 0 {
+  while board.game_ended(false) == 0 {
     it += 1;
     let action = players[cur_player](&mut board);
-
     let valids = board.vec_valid_moves(board.turn);
     if !valids[action] {
       println!("Action {} is not valid!", action);
@@ -230,7 +232,7 @@ pub fn play_game<F: FnMut(&mut Board) -> usize>(player1: &mut F, player2: & mut 
       assert!(valids[action]);
     }
     // println!("{}", board.valid_moves(board.turn));
-    // if rep == 0 {
+    // if count == 0 {
     //   println!("Turn {} Player {} action {} {}", it, board.turn as i32, action % 5 + 1, action / 5 + 1);
     //   println!("{}", board);
     // }
@@ -238,11 +240,11 @@ pub fn play_game<F: FnMut(&mut Board) -> usize>(player1: &mut F, player2: & mut 
     // println!("Turn {} Player {} action {} {}", it, board.turn as i32, action % 5 + 1, action / 5 + 1);
     cur_player = (board.turn as i32 + 1) as usize / 2;
   }
-  if rep == 0 {
-    println!("{} {}", board.game_ended() ,board.get_kifu_sgf());
+  if count == 0 {
+    println!("{} {}", board.game_ended(false) ,board.get_kifu_sgf());
     println!("");
   }
-  board.game_ended()
+  board.game_ended(false)
 }
 pub fn play_games(num: u32, board_size: i64, action_size: i64, num_channels: i64) -> (u32, u32, u32) {
   let num = num / 2;
@@ -314,22 +316,22 @@ impl Coach {
     let mut ex_arc_mut = Arc::new(Mutex::new(train_examples));
     let mut sp_ex = Arc::clone(&ex_arc_mut);
     let mut tn_ex = Arc::clone(&ex_arc_mut);
-    println!("before self play");
+    println!("self playing...");
     {
       self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 10, 12);
-      println!("after self play {:?}", sp_ex.lock().unwrap().len());
+      println!("self play done we got {:?} examples", sp_ex.lock().unwrap().len());
     }
 
     let self_play_handle = thread::spawn(move || {
       for i in 0..1000 {
-        println!("self_play start {}", i);
+        println!("self playing... round:{}", i);
         self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 10, 8);
-        println!("self_play end {}", i);
+        println!("self play done round:{}", i);
       }
     });
     let train_net_handle = thread::spawn(move || {
       for i in 0..10000 {
-        println!("start train {}", i);
+        println!("start training... {}", i);
         let mut lr = 0.0005;
         if i > 20 {
           lr = 0.0002;
@@ -339,7 +341,6 @@ impl Coach {
         arena(board_size, action_size, num_channels);
       }
     });
-    println!("before join");
     self_play_handle.join().unwrap();
     train_net_handle.join().unwrap();
     println!("learning end");

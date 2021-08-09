@@ -2,26 +2,10 @@ pub mod igo;
 pub use igo::*;
 extern crate console_error_panic_hook;
 use std::panic;
-use js_sys::{Promise, Float32Array, Number};
-use std::rc::Rc;
-use std::cell::{RefCell, RefMut};
+use js_sys::{Float32Array, Number, Boolean};
 
 extern crate wasm_bindgen;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::spawn_local;
-use wasm_bindgen_futures::JsFuture;
-
-static mut BOARDS: Option<Rc<RefCell<Vec<(Vec<f32>, f32)>>>> = None;
-
-pub fn init_boards() {
-  unsafe {
-    BOARDS = Some(Rc::new(RefCell::new(Vec::new())));
-  }
-}
-
-pub fn boards_mut() -> RefMut<'static, Vec<(Vec<f32>, f32)>> {
-  unsafe { BOARDS.as_ref().unwrap().borrow_mut() }
-}
 
 #[wasm_bindgen(module="/src/jspredict.js")]
 extern {
@@ -59,15 +43,10 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
     }
     let jsoutput = jspredict(Float32Array::from(&input[..]));
     rspredict(jsoutput, len, asize)
-    // let future = JsFuture::from(jsoutput);
-    // init_boards();
-    // spawn_local(rspredict(future, len, asize));
-    // let res = boards_mut().to_vec();
-    // panic!("{:?}", boards_mut());
-    // res
   }
   let temp = 1.0;
-  let pi = mcts.get_action_prob(&board, temp, &predict);
+  let for_train = false;
+  let pi = mcts.get_action_prob(&board, temp, &predict, for_train);
   let pijs = Float32Array::from(&pi[..]);
   return pijs;
 }
@@ -87,7 +66,15 @@ pub fn action(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: 
 pub fn game_ended(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number) -> Number {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   let board = get_board(&board_size, &stones, &turn, &pass_cnt);
-  Number::from(board.game_ended())
+  Number::from(board.game_ended(false))
+}
+
+#[wasm_bindgen]
+pub fn is_valid_move(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, action: Number) -> Boolean {
+  panic::set_hook(Box::new(console_error_panic_hook::hook));
+  let board = get_board(&board_size, &stones, &turn, &pass_cnt);
+  let valids = board.vec_valid_moves(board.turn);
+  Boolean::from(valids[action.value_of() as usize])
 }
 
 pub fn rspredict(board: Float32Array, len: usize, asize: usize) -> Vec<(Vec<f32>, f32)> {
@@ -98,6 +85,5 @@ pub fn rspredict(board: Float32Array, len: usize, asize: usize) -> Vec<(Vec<f32>
     let v = output.get((i+1)*(asize+1)-1).unwrap();
     result.push((pi, *v));
   }
-  // boards_mut().extend(result);
   result
 }

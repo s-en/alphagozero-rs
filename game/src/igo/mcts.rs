@@ -75,7 +75,7 @@ impl MCTS {
       }
     }
   }
-  pub fn get_action_prob<F>(&mut self, c_board: &Board, temp: f32, predict: &F) -> Vec<f32>
+  pub fn get_action_prob<F>(&mut self, c_board: &Board, temp: f32, predict: &F, for_train: bool) -> Vec<f32>
     where 
       F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>
     {
@@ -94,7 +94,7 @@ impl MCTS {
     while cnt <= sn {
       let mut nodes_inside: Vec<((u64, usize), f32)> = Vec::new();
       let mut b = c_board.clone();
-      let (_, leaf) = self.search(&mut b, &mut nodes_inside, root_turn);
+      let (_, leaf) = self.search(&mut b, &mut nodes_inside, root_turn, for_train);
       nodes.push(nodes_inside);
       if let Some(x) = leaf {
         let (input, s) = x;
@@ -127,16 +127,22 @@ impl MCTS {
     }
     let counts: Vec<f32> = counts.iter().map(|&x| x.powf(1.0 / temp)).collect();
     let counts_sum: f32 = counts.iter().sum();
-    let probs: Vec<f32> = counts.iter().map(|x| x / counts_sum).collect();
+    let probs: Vec<f32>;
+    if counts_sum == 0.0 {
+      // avoid devide by zero
+      probs = c_board.vec_valid_moves(root_turn).iter().map(|&x| x as i32 as f32).collect(); // random move
+    } else {
+      probs= counts.iter().map(|x| x / counts_sum).collect();
+    }
     // let end = start.elapsed();
     // println!("getactionprob {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
     probs
   }
-  pub fn search(&mut self, c_board: &mut Board, nodes: &mut Vec<((u64, usize), f32)>, root_turn: Turn) -> (f32, Option<(Vec<f32>, u64)>) {
+  pub fn search(&mut self, c_board: &mut Board, nodes: &mut Vec<((u64, usize), f32)>, root_turn: Turn, for_train: bool) -> (f32, Option<(Vec<f32>, u64)>) {
     let s = c_board.calc_hash();
     //println!("search {} {:?}", c_board, s);
     if !self.es.contains_key(&s) {
-      self.es.insert(s, c_board.game_ended() as f32);
+      self.es.insert(s, c_board.game_ended(for_train) as f32);
     }
     if self.es[&s] != 0.0 {
       // terminal node
@@ -144,7 +150,12 @@ impl MCTS {
     }
     if !self.ps.contains_key(&s) {
       // leaf node
-      let valids = c_board.vec_valid_moves(c_board.turn);
+      let valids;
+      if for_train {
+        valids = c_board.vec_valid_moves_for_train(c_board.turn);
+      } else {
+        valids = c_board.vec_valid_moves(c_board.turn);
+      }
       self.ps.insert(s, valids.iter().map(|&v| v as i32 as f32).collect());
       self.vs.insert(s, valids);
       self.ns.insert(s, 0);
@@ -196,7 +207,7 @@ impl MCTS {
     // search until leaf node
     let sa = (s, a);
     nodes.push((sa, turn));
-    let (v, leaf) = self.search(c_board, nodes, root_turn);
+    let (v, leaf) = self.search(c_board, nodes, root_turn, for_train);
 
     // move back up the tree
     let mut win = v * turn;

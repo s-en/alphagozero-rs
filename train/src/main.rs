@@ -1,5 +1,5 @@
 // extern crate tch;
-use tch::{nn, nn::ModuleT};
+use tch::nn;
 use rand::prelude::*;
 use std::collections::VecDeque;
 use az_game::igo::*;
@@ -22,8 +22,6 @@ pub struct NNet {
 }
 
 pub struct Coach {
-  rng: rand::rngs::StdRng,
-  train_examples: Vec<Example>,
   board_size: i64,
   action_size: i64,
   num_channels: i64,
@@ -42,20 +40,15 @@ pub struct Examples {
 }
 
 use anyhow::Result;
-use tch::Tensor;
-use tch::nn::{Adam, OptimizerConfig, VarStore};
-use tch::vision::dataset::Dataset;
 use tch::TrainableCModule;
-use tch::{CModule, Device};
-use std::path::Path;
+use tch::CModule;
 
+use rand::distributions::WeightedIndex;
 fn main() {
   unsafe{ torch_sys::dummy_cuda_dependency(); }
   println!("cuda is_available: {}",tch::Cuda::is_available());
   tch::manual_seed(42);
   let mut coach = Coach {
-    rng: rand::SeedableRng::from_seed([42; 32]),
-    train_examples: Vec::new(),
     board_size: 5,
     action_size: 26,
     num_channels: 32,
@@ -144,7 +137,7 @@ fn nnet_test() {
   examples.push(&ex);
   examples.push(&ex);
   examples.push(&ex);
-  net.train(examples);
+  net.train(examples, 0.01);
 
   let pi = NNet::predict(&net, board.input());
   println!("predict {:?}", pi);
