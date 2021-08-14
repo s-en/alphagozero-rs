@@ -127,8 +127,7 @@ impl Stones {
         t  = K3 & (x ^ (x << 9));
         x ^=       t ^ (t >> 9) ;
         Stones::new128(x)
-      },
-      _ => Stones::new32(0)
+      }
     }
   }
   pub fn vec(&self) -> Vec<f32> {

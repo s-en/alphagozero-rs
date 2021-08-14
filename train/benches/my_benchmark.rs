@@ -4,7 +4,7 @@ extern crate criterion;
 use criterion::Criterion;
 use criterion::black_box;
 use az_game::igo::*;
-use az_train::*;
+//use az_train::*;
 
 fn fibonacci(n: u64) -> u64 {
   let mut a = 0;

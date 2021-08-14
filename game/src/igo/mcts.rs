@@ -1,6 +1,5 @@
 use super::*;
 use std::cmp::Ordering;
-use std::future::Future;
 
 pub fn max_idx(vals: &Vec<f32>) -> usize {
   let index_of_max: Option<usize> = vals
@@ -28,21 +27,6 @@ impl MCTS {
       es: HashMap::new(), // game ended
       vs: HashMap::new(), // valid moves
     }
-  }
-  pub fn get_win_rate(&self, c_board: &Board) -> f32 {
-    let s = c_board.calc_hash();
-    let amax = c_board.action_size();
-    let mut qsas = Vec::new();
-    for a in 0..amax {
-      let mut val = 0.0;
-      if self.qsa.contains_key(&(s, a)) {
-        val = self.qsa[&(s, a)];
-      }
-      qsas.push(val);
-    }
-    //println!("qsas {:?}", qsas);
-    //println!("");
-    0.0
   }
   fn predict_leaf<F>(&mut self, nodes: &Vec<Vec<((u64, usize), f32)>>, inputs: &Vec<Vec<f32>>, hashs: &Vec<u64>, predict: &F)
     where 
@@ -81,9 +65,9 @@ impl MCTS {
     {
     let s = c_board.calc_hash();
     let amax = c_board.action_size();
-    let mut sn = self.sim_num;
+    let sn = self.sim_num;
     let root_turn = c_board.turn;
-    // if root_turn == Turn::White {
+    // if for_train && root_turn == Turn::White {
     //   // handicap for white player
     //   sn *= 2;
     // }

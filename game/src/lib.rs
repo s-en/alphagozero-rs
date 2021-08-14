@@ -29,10 +29,10 @@ fn get_board(board_size: &Number, stones: &Float32Array, turn: &Number, pass_cnt
 }
 
 #[wasm_bindgen]
-pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number) -> Float32Array {
+pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, sim_num: u32) -> Float32Array {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   let board = get_board(&board_size, &stones, &turn, &pass_cnt);
-  let mut mcts = MCTS::new(200, 1.0); // reset search tree
+  let mut mcts = MCTS::new(sim_num, 1.0); // reset search tree
   fn predict(inputs: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
     let len = inputs.len();
     let mut asize:usize = 0;

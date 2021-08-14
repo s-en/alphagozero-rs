@@ -1,9 +1,6 @@
 use super::*;
-use tch::{nn, Tensor, Device, IValue, nn::OptimizerConfig, no_grad, Kind, TchError, Reduction, nn::Conv2D, nn::FuncT, nn::ModuleT};
-use anyhow::{bail, Result};
-use indicatif::ProgressIterator;
-use std::time::SystemTime;
-use tch::IndexOp;
+use tch::{nn, Tensor, Device, nn::OptimizerConfig, Kind, nn::Conv2D, nn::ModuleT, autocast};
+use anyhow::Result;
 use std::time::Instant;
 
 fn randint(max: usize, size: usize, rnd: &mut ThreadRng) -> Vec<usize> {
@@ -73,7 +70,6 @@ pub fn learning_rate(epoch: i64) -> f64 {
 impl NNet {
   pub fn new(board_size: i64, action_size: i64, num_channels: i64) -> NNet {
     let vs = nn::VarStore::new(Device::cuda_if_available());
-    let root = vs.root();
     NNet {
       board_size,
       action_size,
@@ -88,9 +84,9 @@ impl NNet {
     net.predict_tensor(b)
   }
   pub fn predict_tensor(&self, board: Tensor) -> (Vec<f32>, f32) {
-    let b = board.view([12, self.board_size, self.board_size]);
-    let mut pi: Tensor = Tensor::zeros(&[1, self.action_size], tch::kind::FLOAT_CUDA);
-    let mut v: Tensor = Tensor::zeros(&[1, 1], tch::kind::FLOAT_CUDA);
+    let b = board.view([12, self.board_size, self.board_size]).totype(Kind::Float);
+    let mut pi: Tensor = Tensor::zeros(&[1, self.action_size], (Kind::Float, self.vs.device()));
+    let mut v: Tensor = Tensor::zeros(&[1, 1], (Kind::Float, self.vs.device()));
     if let Some(model) = &self.model {
       let output = model.forward_t(&b, false);
       pi = output.narrow(1, 0, self.action_size);
@@ -110,18 +106,18 @@ impl NNet {
   }
   pub fn predict32(net: &NNet, board: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
     let start = Instant::now();
-    let b = Tensor::of_slice2(&board).to_device(net.vs.device());
+    let b = Tensor::of_slice2(&board).to_device(net.vs.device()).totype(Kind::Float);
     let res = net.predict32_tensor(b, board.len() as i64);
     let end = start.elapsed();
     // println!("{:?}", board);
     // println!("res {:?}", res);
-    //println!("predict32 {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
+    // println!("predict32 {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
     res
   }
   pub fn predict32_tensor(&self, board: Tensor, num: i64) -> Vec<(Vec<f32>, f32)> {
     let b = board.view([num, 12, self.board_size, self.board_size]);
-    let mut pi: Tensor = Tensor::zeros(&[num, self.action_size], tch::kind::FLOAT_CUDA);
-    let mut v: Tensor = Tensor::zeros(&[num, 1], tch::kind::FLOAT_CUDA);
+    let mut pi: Tensor = Tensor::zeros(&[num, self.action_size], (Kind::Float, self.vs.device()));
+    let mut v: Tensor = Tensor::zeros(&[num, 1], (Kind::Float, self.vs.device()));
     if let Some(model) = &self.model {
       //let start = Instant::now();
       let output = model.forward_t(&b, false);
@@ -173,8 +169,8 @@ impl NNet {
       let output = boards.apply_t(trainable_model, true);
       let out_pi = output.narrow(1, 0 , self.action_size);
       let out_v = output.narrow(1, self.action_size, 1);
-      let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;
-      let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
+      let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0];
+      let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0];
       let total_loss = l_pi + l_v;
       if i % (epochs / 5 + 1) == 0 {
         println!("loss {:?}", Vec::<f32>::from(&total_loss));
@@ -185,9 +181,12 @@ impl NNet {
         println!("has nan");
         let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;
         let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
-        total_loss.print();
-        l_pi.print();
-        l_v.print();
+        //total_loss.print();
+        println!("target_pis {:?}", target_pis);
+        println!("output {:?}", output);
+        output.print();
+        // l_pi.print();
+        // l_v.print();
         println!("target_pis.size {:?}", target_pis.size()[0]);
         println!("target_vs.size {:?}", target_vs.size()[0]);
         println!("target_pis {:?}", target_pis);

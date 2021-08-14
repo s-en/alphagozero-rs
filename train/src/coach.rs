@@ -10,19 +10,19 @@ use std::cmp;
 
 extern crate savefile;
 
-fn self_play_sim(arc_examples: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64, num_eps: i32, sim_num: i32) {
+fn self_play_sim(arc_examples: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64, num_eps: i32, sim_num: i32, mcts_sim_num: u32) {
   let maxlen_of_queue = 100000;
   let mut rng = rand::thread_rng();
   let (tx, rx) = mpsc::channel();
   for _ in 0..(sim_num-1) {
     let tx1 = mpsc::Sender::clone(&tx);
     thread::spawn(move || {
-      let examples = self_play(board_size, action_size, num_channels, num_eps);
+      let examples = self_play(board_size, action_size, num_channels, num_eps, mcts_sim_num);
       tx1.send(examples).unwrap();
     });
   }
   thread::spawn(move || {
-    let examples = self_play(board_size, action_size, num_channels, num_eps);
+    let examples = self_play(board_size, action_size, num_channels, num_eps, mcts_sim_num);
     tx.send(examples).unwrap();
   });
   {
@@ -30,6 +30,7 @@ fn self_play_sim(arc_examples: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, a
     for examples in rx {
       results.extend(examples);
     }
+    println!("self play done. we've got {} examples", results.len());
     let train_examples = &mut *arc_examples.lock().unwrap();
     train_examples.extend(results);
     let tlen = train_examples.len();
@@ -41,7 +42,7 @@ fn self_play_sim(arc_examples: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, a
   }
 }
 
-fn self_play(board_size: i64, action_size: i64, num_channels: i64, num_eps: i32) -> Vec<Example> {
+fn self_play(board_size: i64, action_size: i64, num_channels: i64, num_eps: i32, mcts_sim_num: u32) -> Vec<Example> {
   let max_history_queue = 40000;
   let rng = &mut rand::thread_rng();
   let mut black_win_history = Examples {
@@ -53,7 +54,7 @@ fn self_play(board_size: i64, action_size: i64, num_channels: i64, num_eps: i32)
   let mut tnet = NNet::new(board_size, action_size, num_channels);
   tnet.load("temp/best.pt");
   for i in 0..num_eps {
-    let mut mcts = MCTS::new(200, 3.0); // reset search tree
+    let mut mcts = MCTS::new(mcts_sim_num, 3.0); // reset search tree
     let ep_results = execute_episode(rng, &mut mcts, &tnet, i);
     //println!("before await");
     let (examples, r) = ep_results;
@@ -108,10 +109,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
       temp = 0.5;
     }
     //println!("step {:?} turn {:?}", board.step, board.turn as i32);
-    let mut pi = mcts.get_action_prob(&board, temp, &predict32, for_train);
-    // println!("{}", board);
-    //println!("pi {:?}", pi);
-    // println!("wi {:?}", WeightedIndex::new(&pi));
+    let pi = mcts.get_action_prob(&board, temp, &predict32, for_train);
     
     let dist = WeightedIndex::new(&pi).unwrap();
     let sym = board.symmetries(pi);
@@ -131,7 +129,6 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
     if r != 0 {
       // println!("{} {}", r, board.get_kifu_sgf());
       // std::process::exit(0x0100);
-      //println!("");
       let v = r as i32;
       for mut ex in &mut examples {
         // v: 1.0 black won
@@ -171,14 +168,14 @@ fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
   let pi = NNet::predict(&net, board.input());
   println!("after {:?}", pi);
 }
-fn arena(board_size: i64, action_size: i64, num_channels: i64) {
+fn arena(mcts_sim_num: u32, board_size: i64, action_size: i64, num_channels: i64) {
   let update_threshold = 0.52;
   
   // training new network, keeping a copy of the old one
   println!("PITTING AGAINST PREVIOUS VERSION");
   let game_result;
   {
-    game_result = play_games(80, board_size, action_size, num_channels);
+    game_result = play_games(80, mcts_sim_num, board_size, action_size, num_channels);
   }
   let (pwins, nwins, draws) = game_result;
 
@@ -208,8 +205,6 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: NNet, temp: f32, count: u64) -> Box<dyn
       };
       let for_train = false;
       let probs = _mcts.get_action_prob(&x, temp, &predict32, for_train);
-      // println!("{:?}", probs);
-      // mcts::max_idx(&probs)
       let dist = WeightedIndex::new(&probs).unwrap();
       dist.sample(&mut rng)
     }
@@ -231,7 +226,6 @@ pub fn play_game<F: FnMut(&mut Board) -> usize>(player1: &mut F, player2: & mut 
       println!("{}", board);
       assert!(valids[action]);
     }
-    // println!("{}", board.valid_moves(board.turn));
     // if count == 0 {
     //   println!("Turn {} Player {} action {} {}", it, board.turn as i32, action % 5 + 1, action / 5 + 1);
     //   println!("{}", board);
@@ -246,7 +240,7 @@ pub fn play_game<F: FnMut(&mut Board) -> usize>(player1: &mut F, player2: & mut 
   }
   board.game_ended(false)
 }
-pub fn play_games(num: u32, board_size: i64, action_size: i64, num_channels: i64) -> (u32, u32, u32) {
+pub fn play_games(num: u32, mcts_sim_num: u32, board_size: i64, action_size: i64, num_channels: i64) -> (u32, u32, u32) {
   let num = num / 2;
   let mut one_won = 0;
   let mut two_won = 0;
@@ -262,8 +256,8 @@ pub fn play_games(num: u32, board_size: i64, action_size: i64, num_channels: i64
       let mut pnet = NNet::new(board_size, action_size, num_channels);
       net.load("temp/trained.pt");
       pnet.load("temp/best.pt");
-      let mut pmcts = MCTS::new(100, 1.0);
-      let mut nmcts = MCTS::new(100, 1.0);
+      let mut pmcts = MCTS::new(mcts_sim_num, 1.0);
+      let mut nmcts = MCTS::new(mcts_sim_num, 1.0);
       let mut player1 = player(&mut pmcts, pnet, temp, i as u64);
       let mut player2 = player(&mut nmcts, net, temp, i as u64);
       let game_result = play_game(&mut player1, &mut player2, i);
@@ -288,8 +282,8 @@ pub fn play_games(num: u32, board_size: i64, action_size: i64, num_channels: i64
       let mut pnet = NNet::new(board_size, action_size, num_channels);
       net.load("temp/trained.pt");
       pnet.load("temp/best.pt");
-      let mut pmcts = MCTS::new(100, 1.0);
-      let mut nmcts = MCTS::new(100, 1.0);
+      let mut pmcts = MCTS::new(mcts_sim_num, 1.0);
+      let mut nmcts = MCTS::new(mcts_sim_num, 1.0);
       let mut player1 = player(&mut pmcts, pnet, temp, i as u64 + 123445);
       let mut player2 = player(&mut nmcts, net, temp, i as u64 + 123445);
       let game_result = play_game(&mut player2, &mut player1, i);
@@ -316,29 +310,42 @@ impl Coach {
     let mut ex_arc_mut = Arc::new(Mutex::new(train_examples));
     let mut sp_ex = Arc::clone(&ex_arc_mut);
     let mut tn_ex = Arc::clone(&ex_arc_mut);
-    println!("self playing...");
+    println!("self playing... warming up");
     {
-      self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 10, 12);
-      println!("self play done we got {:?} examples", sp_ex.lock().unwrap().len());
+      let mcts_sim_num = 100;
+      self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 10, 12, mcts_sim_num);
     }
 
     let self_play_handle = thread::spawn(move || {
-      for i in 0..1000 {
+      for i in 0..10000 {
         println!("self playing... round:{}", i);
-        self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 10, 8);
-        println!("self play done round:{}", i);
+        let mut mcts_sim_num = 100;
+        if i > 10 {
+          mcts_sim_num = 200;
+        }
+        if i > 50 {
+          mcts_sim_num = 400;
+        }
+        if i > 400 {
+          mcts_sim_num = 800;
+        }
+        self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 10, 8, mcts_sim_num);
       }
     });
     let train_net_handle = thread::spawn(move || {
       for i in 0..10000 {
-        println!("start training... {}", i);
+        println!("start training... round:{}", i);
         let mut lr = 0.0005;
-        if i > 20 {
-          lr = 0.0002;
+        let mut mcts_sim_num: u32 = 100;
+        if i > 10 {
+          mcts_sim_num = 200;
+        }
+        if i > 50 {
+          lr = 0.0001;
+          mcts_sim_num = 400;
         }
         train_net(&mut tn_ex, board_size, action_size, num_channels, lr);
-        println!("start arena {}", i);
-        arena(board_size, action_size, num_channels);
+        arena(mcts_sim_num, board_size, action_size, num_channels);
       }
     });
     self_play_handle.join().unwrap();
