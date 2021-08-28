@@ -26,7 +26,41 @@ impl MCTS {
       ps: HashMap::new(), // initial policy (returned by neural net)
       es: HashMap::new(), // game ended
       vs: HashMap::new(), // valid moves
+      wr: HashMap::new(), // win rate
     }
+  }
+  pub fn extend(mcts: MCTS) -> MCTS {
+    MCTS {
+      sim_num: mcts.sim_num,
+      cpuct: mcts.cpuct,
+      qsa: HashMap::new(), // Q values
+      nsa: HashMap::new(), // edge visited times
+      wsa: HashMap::new(), // win probability
+      ns: HashMap::new(), // board visited times
+      ps: mcts.ps, // initial policy (returned by neural net)
+      es: HashMap::new(), // game ended
+      vs: mcts.vs, // valid moves
+      wr: mcts.wr, // win rate
+    }
+  }
+  pub fn duplicate(mcts: &MCTS) -> MCTS {
+    MCTS {
+      sim_num: mcts.sim_num,
+      cpuct: mcts.cpuct,
+      qsa: HashMap::new(), // Q values
+      nsa: HashMap::new(), // edge visited times
+      wsa: HashMap::new(), // win probability
+      ns: HashMap::new(), // board visited times
+      ps: mcts.ps.clone(), // initial policy (returned by neural net)
+      es: HashMap::new(), // game ended
+      vs: mcts.vs.clone(), // valid moves
+      wr: mcts.wr.clone(), // win rate
+    }
+  }
+  pub fn append(&mut self, mcts: &MCTS) {
+    self.ps.extend(mcts.ps.clone().into_iter());
+    self.vs.extend(mcts.vs.clone().into_iter());
+    self.wr.extend(mcts.wr.clone().into_iter());
   }
   fn predict_leaf<F>(&mut self, nodes: &Vec<Vec<((u64, usize), f32)>>, inputs: &Vec<Vec<f32>>, hashs: &Vec<u64>, predict: &F)
     where 
@@ -49,6 +83,7 @@ impl MCTS {
         masked_valids = valids.iter().map(|&x| x as i32 as f32 / sum_ps_s as f32).collect();
       }
       self.ps.insert(s, masked_valids);
+      self.wr.insert(s, *v);
       // move back down the tree
       let sections = &nodes[b];
       for section in sections {
@@ -132,20 +167,27 @@ impl MCTS {
       // terminal node
       return (self.es[&s], None);
     }
-    if !self.ps.contains_key(&s) {
+    if !self.ns.contains_key(&s) {
       // leaf node
       let valids;
-      if for_train {
-        valids = c_board.vec_valid_moves_for_train(c_board.turn);
+      if self.wr.contains_key(&s) {
+        // has cache
+        self.ns.insert(s, 0);
+        return (self.wr[&s], None);
       } else {
-        valids = c_board.vec_valid_moves(c_board.turn);
+        // no cache
+        if for_train {
+          valids = c_board.vec_valid_moves_for_train(c_board.turn);
+        } else {
+          valids = c_board.vec_valid_moves(c_board.turn);
+        }
+        self.ps.insert(s, valids.iter().map(|&v| v as i32 as f32).collect());
+        self.vs.insert(s, valids);
+        self.ns.insert(s, 0);
+        let v_loss = 0.0;//root_turn as i32 as f32 * -1.0;
+        let leaf = Some((c_board.input(), s));
+        return (v_loss, leaf);
       }
-      self.ps.insert(s, valids.iter().map(|&v| v as i32 as f32).collect());
-      self.vs.insert(s, valids);
-      self.ns.insert(s, 0);
-      let v_loss = 0.0;//root_turn as i32 as f32 * -1.0;
-      let leaf = Some((c_board.input(), s));
-      return (v_loss, leaf);
     }
     let valids = &self.vs[&s];
     let mut cur_best = f32::MIN;
@@ -153,7 +195,6 @@ impl MCTS {
 
     // pick best action
     let amax = c_board.action_size();
-    let mut temp: Vec<f32> = Vec::new();
     for a in 0..amax {
       if !valids[a] { continue; }
       let u: f32;
@@ -163,8 +204,6 @@ impl MCTS {
       } else {
         u = self.cpuct * self.ps[&s][a] * (self.ns[&s] as f32 + 1e-8).sqrt();
       }
-      //println!("s:{:?} a:{:?} u:{:?}", s, a, u);
-      temp.push(u);
       if u > cur_best {
         cur_best = u;
         best_act = a as isize;
