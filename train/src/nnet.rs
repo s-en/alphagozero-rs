@@ -105,46 +105,47 @@ impl NNet {
     (r1, r2)
   }
   pub fn predict32(net: &NNet, board: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
-    let start = Instant::now();
+    //let start = Instant::now();
     let b = Tensor::of_slice2(&board).to_device(net.vs.device()).totype(Kind::Float);
     let res = net.predict32_tensor(b, board.len() as i64);
-    let end = start.elapsed();
+    //let end = start.elapsed();
     // println!("{:?}", board);
     // println!("res {:?}", res);
     // println!("predict32 {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
     res
   }
   pub fn predict32_tensor(&self, board: Tensor, num: i64) -> Vec<(Vec<f32>, f32)> {
-    let b = board.view([num, 12, self.board_size, self.board_size]);
-    let mut pi: Tensor = Tensor::zeros(&[num, self.action_size], (Kind::Float, self.vs.device()));
-    let mut v: Tensor = Tensor::zeros(&[num, 1], (Kind::Float, self.vs.device()));
-    if let Some(model) = &self.model {
-      //let start = Instant::now();
-      let output = model.forward_t(&b, false);
-      // let end = start.elapsed();
-      // println!("forward_t {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
-      pi = output.narrow(1, 0, self.action_size);
-      v = output.narrow(1, self.action_size, 1);
-    } else if let Some(model) = &self.tmodel {
-      let output = model.forward_t(&b, false);
-      pi = output.narrow(1, 0, self.action_size);
-      v = output.narrow(1, self.action_size, 1);
-    } else {
-      println!("predict32_tensor model not found");
-    }
     let mut res = Vec::new();
-    let rs1 = pi.view([num, self.action_size]);
-    let rs2 = v.view([num, 1]);
-    for i in 0..num {
-      let r1 = Vec::<f32>::from(rs1.narrow(0, i, 1));
-      let r2 = rs2.double_value(&[i, 0]) as f32;
-      res.push((r1, r2));
-    }
+    tch::no_grad(|| {
+      let b = board.view([num, 12, self.board_size, self.board_size]);
+      let mut pi: Tensor = Tensor::zeros(&[num, self.action_size], (Kind::Float, self.vs.device()));
+      let mut v: Tensor = Tensor::zeros(&[num, 1], (Kind::Float, self.vs.device()));
+      if let Some(model) = &self.model {
+        // let start = Instant::now();
+        let output = model.forward_t(&b, false);
+        // let end = start.elapsed();
+        // println!("forward_t {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
+        pi = output.narrow(1, 0, self.action_size);
+        v = output.narrow(1, self.action_size, 1);
+      } else if let Some(model) = &self.tmodel {
+        let output = model.forward_t(&b, false);
+        pi = output.narrow(1, 0, self.action_size);
+        v = output.narrow(1, self.action_size, 1);
+      } else {
+        println!("predict32_tensor model not found");
+      }
+      let rs1 = pi.view([num, self.action_size]);
+      let rs2 = v.view([num, 1]);
+      for i in 0..num {
+        let r1 = Vec::<f32>::from(rs1.narrow(0, i, 1));
+        let r2 = rs2.double_value(&[i, 0]) as f32;
+        res.push((r1, r2));
+      }
+    });
     res
   }
   pub fn train(&mut self, examples: Vec<&Example>, lr: f64) -> Result<()> {
     // examples: list of examples, each example is of form (board, pi, v)
-    tch::manual_seed(42);
     let trainable_model;
     if let Some(model) = &mut self.tmodel {
       trainable_model = model;
@@ -152,19 +153,24 @@ impl NNet {
       panic!("trainable_model not found");
     }
     let mut optimizer = nn::Adam::default().build(&self.vs, lr)?;
-    let epochs: i32 = examples.len() as i32 / 300 + 1;
+    let epochs: i32 = examples.len() as i32 / 100 + 1;
     let batch_size = 512;
     println!("start train examples:{}", examples.len());
     let mut rnd = rand::thread_rng();
     trainable_model.set_train();
-    // let mut prev_model;
-    // let mut prev_optimizer;
     for i in 0..epochs {
-      let sample_ids = randint(examples.len(), batch_size, &mut rnd);
-      let ex: Vec<&Example> = examples.iter().enumerate().filter(|(i, _)| sample_ids.contains(i)).map(|(_, e)| *e).collect();
-      let boards = Tensor::of_slice2(&ex.iter().map(|x| &x.board).collect::<Vec<&Vec<f32>>>()).to_device(self.vs.device());
-      let target_pis = Tensor::of_slice2(&ex.iter().map(|x| &x.pi).collect::<Vec<&Vec<f32>>>()).to_device(self.vs.device());
-      let target_vs = Tensor::of_slice(&ex.iter().map(|x| x.v).collect::<Vec<f32>>()).to_device(self.vs.device());
+      let ex: Vec<&Example> = examples.choose_multiple(&mut rnd, batch_size).cloned().collect();
+      let mut ex_board: Vec<&Vec<f32>> = Vec::new();
+      let mut ex_pis: Vec<&Vec<f32>> = Vec::new();
+      let mut ex_vs: Vec<f32> = Vec::new();
+      for row in ex.iter() {
+        ex_board.push(&row.board);
+        ex_pis.push(&row.pi);
+        ex_vs.push(row.v);
+      }
+      let boards = Tensor::of_slice2(&ex_board).to_device(self.vs.device());
+      let target_pis = Tensor::of_slice2(&ex_pis).to_device(self.vs.device());
+      let target_vs = Tensor::of_slice(&ex_vs).to_device(self.vs.device());
       // compute output
       let output = boards.apply_t(trainable_model, true);
       let out_pi = output.narrow(1, 0 , self.action_size);
@@ -179,14 +185,9 @@ impl NNet {
       let nan = total_loss.isnan().sum(tch::Kind::Float);
       if i64::from(nan) > 0 {
         println!("has nan");
-        let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0] as f64;
-        let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0] as f64;
-        //total_loss.print();
         println!("target_pis {:?}", target_pis);
         println!("output {:?}", output);
         output.print();
-        // l_pi.print();
-        // l_v.print();
         println!("target_pis.size {:?}", target_pis.size()[0]);
         println!("target_vs.size {:?}", target_vs.size()[0]);
         println!("target_pis {:?}", target_pis);

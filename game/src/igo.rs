@@ -45,13 +45,14 @@ pub struct Board {
 }
 
 pub struct MCTS {
-  sim_num: u32,
+  pub sim_num: u32,
   cpuct: f32,
   qsa: HashMap<(u64, usize), f32>, // Q values
   nsa: HashMap<(u64, usize), u32>, // edge visited times
   wsa: HashMap<(u64, usize), f32>, // win probability total
   ns: HashMap<u64, u32>, // board visited times
-  ps: HashMap<u64, Vec<f32>>, // initial policy (returned by neural net)
+  pub ps: HashMap<u64, Vec<f32>>, // initial policy (returned by neural net)
   es: HashMap<u64, f32>, // game ended
-  vs: HashMap<u64, Vec<bool>>, // valid moves
+  pub vs: HashMap<u64, Vec<bool>>, // valid moves
+  pub wr: HashMap<u64, f32>, // win rate
 }
