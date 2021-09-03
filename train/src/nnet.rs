@@ -153,7 +153,7 @@ impl NNet {
       panic!("trainable_model not found");
     }
     let mut optimizer = nn::Adam::default().build(&self.vs, lr)?;
-    let epochs: i32 = examples.len() as i32 / 100 + 1;
+    let epochs: i32 = examples.len() as i32 / 50 + 1;
     let batch_size = 512;
     println!("start train examples:{}", examples.len());
     let mut rnd = rand::thread_rng();
@@ -186,8 +186,8 @@ impl NNet {
       if i64::from(nan) > 0 {
         println!("has nan");
         println!("target_pis {:?}", target_pis);
-        println!("output {:?}", output);
-        output.print();
+        println!("output {:?}", output.isnan().sum(tch::Kind::Float));
+        // output.print();
         println!("target_pis.size {:?}", target_pis.size()[0]);
         println!("target_vs.size {:?}", target_vs.size()[0]);
         println!("target_pis {:?}", target_pis);
