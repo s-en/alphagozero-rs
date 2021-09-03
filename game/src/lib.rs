@@ -44,9 +44,9 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
     let jsoutput = jspredict(Float32Array::from(&input[..]));
     rspredict(jsoutput, len, asize)
   }
-  let temp = 1.0;
+  let temp = 0.1;
   let for_train = false;
-  let pi = mcts.get_action_prob(&board, temp, &predict, for_train);
+  let pi = mcts.get_action_prob(&board, temp, &predict, for_train, 0);
   let pijs = Float32Array::from(&pi[..]);
   return pijs;
 }
@@ -66,7 +66,7 @@ pub fn action(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: 
 pub fn game_ended(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number) -> Number {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   let board = get_board(&board_size, &stones, &turn, &pass_cnt);
-  Number::from(board.game_ended(false))
+  Number::from(board.game_ended(false, 0))
 }
 
 #[wasm_bindgen]

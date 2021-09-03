@@ -289,19 +289,20 @@ impl Board {
     let w: i32 = self.white.count_ones() as i32;
     b - w
   }
-  pub fn game_ended(&self, auto_resign: bool) -> i8 {
+  pub fn game_ended(&self, auto_resign: bool, komi: i32) -> i8 {
     let s = self.size().pow(2);
-    if self.pass_cnt < 2 && self.step < s * 3{
-      return 0;
-      // pass twice
-      // step over *3 times
-    }
     let diff = self.count_diff();
     if auto_resign && diff.abs() < s as i32 / 2 {
       return 0;
       // win large amout
+    } else {
+      if self.pass_cnt < 2 && self.step < s * 3{
+        return 0;
+        // pass twice
+        // step over *3 times
+      }
     }
-    if diff > 0 { return 1; }
+    if diff > komi { return 1; }
     return -1;
   }
   pub fn get_kifu_sgf(&self) -> String {

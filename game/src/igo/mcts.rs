@@ -94,7 +94,7 @@ impl MCTS {
       }
     }
   }
-  pub fn get_action_prob<F>(&mut self, c_board: &Board, temp: f32, predict: &F, for_train: bool) -> Vec<f32>
+  pub fn get_action_prob<F>(&mut self, c_board: &Board, temp: f32, predict: &F, for_train: bool, komi: i32) -> Vec<f32>
     where 
       F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>
     {
@@ -113,7 +113,7 @@ impl MCTS {
     while cnt <= sn {
       let mut nodes_inside: Vec<((u64, usize), f32)> = Vec::new();
       let mut b = c_board.clone();
-      let (_, leaf) = self.search(&mut b, &mut nodes_inside, root_turn, for_train);
+      let (_, leaf) = self.search(&mut b, &mut nodes_inside, root_turn, for_train, komi);
       nodes.push(nodes_inside);
       if let Some(x) = leaf {
         let (input, s) = x;
@@ -157,11 +157,11 @@ impl MCTS {
     // println!("getactionprob {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
     probs
   }
-  pub fn search(&mut self, c_board: &mut Board, nodes: &mut Vec<((u64, usize), f32)>, root_turn: Turn, for_train: bool) -> (f32, Option<(Vec<f32>, u64)>) {
+  pub fn search(&mut self, c_board: &mut Board, nodes: &mut Vec<((u64, usize), f32)>, root_turn: Turn, for_train: bool, komi: i32) -> (f32, Option<(Vec<f32>, u64)>) {
     let s = c_board.calc_hash();
     //println!("search {} {:?}", c_board, s);
     if !self.es.contains_key(&s) {
-      self.es.insert(s, c_board.game_ended(for_train) as f32);
+      self.es.insert(s, c_board.game_ended(for_train, komi) as f32);
     }
     if self.es[&s] != 0.0 {
       // terminal node
@@ -230,7 +230,7 @@ impl MCTS {
     // search until leaf node
     let sa = (s, a);
     nodes.push((sa, turn));
-    let (v, leaf) = self.search(c_board, nodes, root_turn, for_train);
+    let (v, leaf) = self.search(c_board, nodes, root_turn, for_train, komi);
 
     // move back up the tree
     let mut win = v * turn;

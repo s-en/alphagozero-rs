@@ -9,7 +9,7 @@ export function jspredict(inputs) {
   console.log("jspredict");
   const BSIZE = 5;
   const len = inputs.length / (12 * BSIZE * BSIZE);
-  console.log(inputs);
+  //console.log(inputs);
   let tmax = 16 * 12 * BSIZE * BSIZE;
   let tinputs = [...inputs, ...Array(tmax).fill(0)]; // fill zero for tail data
   tinputs = tinputs.slice(0, tmax);

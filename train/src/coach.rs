@@ -11,6 +11,8 @@ use std::collections::HashMap;
 
 extern crate savefile;
 
+const KOMI: i32 = 10;
+
 fn self_play_sim(
   arc_examples: &mut Arc<Mutex<Vec<Example>>>, 
   board_size: i64, 
@@ -122,7 +124,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
     }
     //println!("step {:?} turn {:?}", board.step, board.turn as i32);
     //let mstart = Instant::now();
-    let pi = mcts.get_action_prob(&board, temp, &predict32, for_train);
+    let pi = mcts.get_action_prob(&board, temp, &predict32, for_train, KOMI);
     // let mend = mstart.elapsed();
     // println!("get_action_prob {}.{:03}秒", mend.as_secs(), mend.subsec_nanos() / 1_000_000);
     
@@ -139,7 +141,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
     let action = dist.sample(rng) as u32;
     board.action(action, board.turn);
 
-    let r = board.game_ended(true);
+    let r = board.game_ended(true, KOMI);
 
     if r != 0 {
       // println!("{} {}", r, board.get_kifu_sgf());
@@ -223,7 +225,7 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32, count: u64) -> Box
         NNet::predict32(_net, inputs)
       };
       let for_train = false;
-      let probs = _mcts.get_action_prob(&x, temp, &predict32, for_train);
+      let probs = _mcts.get_action_prob(&x, temp, &predict32, for_train, KOMI);
       let dist = WeightedIndex::new(&probs).unwrap();
       dist.sample(&mut rng)
     }
@@ -234,7 +236,7 @@ pub fn play_game<F: FnMut(&mut Board) -> usize>(player1: &mut F, player2: & mut 
   let mut cur_player = 1;
   let mut board = Board::new(BoardSize::S5);
   let mut it = 0;
-  while board.game_ended(false) == 0 {
+  while board.game_ended(false, KOMI) == 0 {
     it += 1;
     let action = players[cur_player](&mut board);
     let valids = board.vec_valid_moves(board.turn);
@@ -249,10 +251,10 @@ pub fn play_game<F: FnMut(&mut Board) -> usize>(player1: &mut F, player2: & mut 
     cur_player = (board.turn as i32 + 1) as usize / 2;
   }
   if count <= 2 {
-    println!("{} {}", board.game_ended(false) ,board.get_kifu_sgf());
+    println!("{} {}", board.game_ended(false, KOMI) ,board.get_kifu_sgf());
     println!("");
   }
-  board.game_ended(false)
+  board.game_ended(false, KOMI)
 }
 pub fn play_games(
   num: u32, 
@@ -268,7 +270,7 @@ pub fn play_games(
 
   let (tx, rx) = mpsc::channel();
   let tx2 = mpsc::Sender::clone(&tx);
-  let temp = 0.4;
+  let temp = 0.2;
   let each_mcts = MCTS::duplicate(mcts);
   thread::spawn(move || {
     let mut a = 0;
@@ -341,7 +343,7 @@ impl Coach {
     let mcts_sim_num = 100;
     println!("self playing... warming up");
     {
-      let mut root_mcts = MCTS::new(mcts_sim_num, 3.0);
+      let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
       self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 10, 12, &mut root_mcts);
     }
     let self_play_handle = thread::spawn(move || {
@@ -354,10 +356,10 @@ impl Coach {
         if i > 50 {
           mcts_sim_num = 400;
         }
-        if i > 200 {
+        if i > 100 {
           mcts_sim_num = 800;
         }
-        let mut root_mcts = MCTS::new(mcts_sim_num, 3.0);
+        let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
         self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 10, 8, &mut root_mcts);
       }
     });
@@ -365,16 +367,12 @@ impl Coach {
     let train_net_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("start training... round:{}", i);
-        let mut lr = 0.0005;
-        let mut mcts_sim_num: u32 = 100;
-        if i > 10 {
-          mcts_sim_num = 200;
-        }
-        if i > 100 {
+        let mut lr = 0.001 - 0.000004 * i as f64;
+        if lr < 0.0001 {
           lr = 0.0001;
-          mcts_sim_num = 400;
         }
-        let mut train_mcts = MCTS::new(mcts_sim_num, 0.1);
+        let mcts_sim_num: u32 = 100 + i / 10;
+        let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);
         train_net(&mut tn_ex, board_size, action_size, num_channels, lr);
         arena(mcts_sim_num, board_size, action_size, num_channels, &mut train_mcts);
       }
