@@ -11,7 +11,8 @@ use std::collections::HashMap;
 
 extern crate savefile;
 
-const KOMI: i32 = 10;
+const KOMI: i32 = 0;
+const BOARD_SIZE: BoardSize = BoardSize::S7;
 
 fn self_play_sim(
   arc_examples: &mut Arc<Mutex<Vec<Example>>>, 
@@ -21,7 +22,7 @@ fn self_play_sim(
   num_eps: i32, 
   sim_num: i32, 
   mcts: &mut MCTS) {
-  let maxlen_of_queue = 100000;
+  let maxlen_of_queue = 1000000;
   let mut rng = rand::thread_rng();
   let (tx, rx) = mpsc::channel();
   for _ in 0..sim_num {
@@ -106,7 +107,7 @@ fn self_play(board_size: i64,
 fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i32) -> (Vec<Example>, i8) {
   //let start = Instant::now();
   let mut examples = Vec::new();
-  let mut board = Board::new(BoardSize::S5);
+  let mut board = Board::new(BOARD_SIZE);
   let mut episode_step = 0;
   let temp_threshold = 5;
   let mut kcnt = 0;
@@ -161,7 +162,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
 }
 fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64, lr: f64) {
   let mut net = NNet::new(board_size, action_size, num_channels);
-  let board = Board::new(BoardSize::S5);
+  let board = Board::new(BOARD_SIZE);
   net.load_trainable("temp/best.pt");
   let pi = NNet::predict(&net, board.input());
   println!("before {:?}", pi);
@@ -234,7 +235,7 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32, count: u64) -> Box
 pub fn play_game<F: FnMut(&mut Board) -> usize>(player1: &mut F, player2: & mut F, count: u32) -> i8 {
   let players = [player2, player1];
   let mut cur_player = 1;
-  let mut board = Board::new(BoardSize::S5);
+  let mut board = Board::new(BOARD_SIZE);
   let mut it = 0;
   while board.game_ended(false, KOMI) == 0 {
     it += 1;
@@ -340,25 +341,16 @@ impl Coach {
     let mut ex_arc_mut = Arc::new(Mutex::new(train_examples));
     let mut sp_ex = Arc::clone(&ex_arc_mut);
     let mut tn_ex = Arc::clone(&ex_arc_mut);
-    let mcts_sim_num = 100;
+    let mcts_sim_num = 600;
     println!("self playing... warming up");
     {
       let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
-      self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 10, 12, &mut root_mcts);
+      self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 5, 4, &mut root_mcts);
     }
     let self_play_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("self playing... round:{}", i);
-        let mut mcts_sim_num = 200;
-        if i > 10 {
-          mcts_sim_num = 300;
-        }
-        if i > 50 {
-          mcts_sim_num = 400;
-        }
-        if i > 100 {
-          mcts_sim_num = 800;
-        }
+        let mcts_sim_num = 600 + i * 3;
         let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
         self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 10, 8, &mut root_mcts);
       }
@@ -367,11 +359,11 @@ impl Coach {
     let train_net_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("start training... round:{}", i);
-        let mut lr = 0.001 - 0.000004 * i as f64;
+        let mut lr = 0.0005 - 0.000002 * i as f64;
         if lr < 0.0001 {
           lr = 0.0001;
         }
-        let mcts_sim_num: u32 = 100 + i / 10;
+        let mcts_sim_num: u32 = 300 + i * 2;
         let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);
         train_net(&mut tn_ex, board_size, action_size, num_channels, lr);
         arena(mcts_sim_num, board_size, action_size, num_channels, &mut train_mcts);

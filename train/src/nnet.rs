@@ -146,7 +146,7 @@ impl NNet {
   }
   pub fn train(&mut self, examples: Vec<&Example>, lr: f64) -> Result<()> {
     // examples: list of examples, each example is of form (board, pi, v)
-    let trainable_model;
+    let mut trainable_model;
     if let Some(model) = &mut self.tmodel {
       trainable_model = model;
     } else {
@@ -158,6 +158,9 @@ impl NNet {
     println!("start train examples:{}", examples.len());
     let mut rnd = rand::thread_rng();
     trainable_model.set_train();
+    let mut loss_hist = 0.0;
+    let mut loss_cnt = 0;
+    let eps = 1e-7;
     for i in 0..epochs {
       let ex: Vec<&Example> = examples.choose_multiple(&mut rnd, batch_size).cloned().collect();
       let mut ex_board: Vec<&Vec<f32>> = Vec::new();
@@ -175,11 +178,16 @@ impl NNet {
       let output = boards.apply_t(trainable_model, true);
       let out_pi = output.narrow(1, 0 , self.action_size);
       let out_v = output.narrow(1, self.action_size, 1);
-      let l_pi = -(&target_pis * &out_pi.log()).sum(tch::Kind::Float) / target_pis.size()[0];
+      let l_pi = -(&target_pis * (&out_pi+eps).log()).sum(tch::Kind::Float) / target_pis.size()[0];
       let l_v = (&target_vs - &out_v.view(-1)).pow(2).sum(tch::Kind::Float) / target_vs.size()[0];
       let total_loss = l_pi + l_v;
-      if i % (epochs / 5 + 1) == 0 {
-        println!("loss {:?}", Vec::<f32>::from(&total_loss));
+      let vloss = Vec::<f32>::from(&total_loss)[0];
+      loss_hist += vloss;
+      loss_cnt += 1;
+      if i % (epochs / 5 + 1) == epochs / 5 {
+        println!("loss {:?}", loss_hist / loss_cnt as f32);
+        loss_hist = 0.0;
+        loss_cnt = 0;
       }
 
       let nan = total_loss.isnan().sum(tch::Kind::Float);

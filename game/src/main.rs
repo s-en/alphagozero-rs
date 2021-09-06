@@ -33,7 +33,7 @@ fn main() {
     result
   };
   let temp = 0.2;
-  let pi = mcts.get_action_prob(&board, temp, &predict, false);
+  let pi = mcts.get_action_prob(&board, temp, &predict, false, 0);
   // let pi: Vec<f32> = vec![1.0; 26];
   println!("{:?}", &pi[..]);
 }

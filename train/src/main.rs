@@ -48,12 +48,14 @@ fn main() {
   unsafe{ torch_sys::dummy_cuda_dependency(); }
   println!("cuda is_available: {}",tch::Cuda::is_available());
   tch::manual_seed(42);
+  let bsize = 7;
   let mut coach = Coach {
-    board_size: 5,
-    action_size: 26,
+    board_size: bsize,
+    action_size: bsize*bsize+1,
     num_channels: 32,
   };
   coach.learn();
+  
 }
 
 #[test]
