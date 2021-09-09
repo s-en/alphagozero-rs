@@ -8,11 +8,14 @@ use std::sync::{Mutex, Arc};
 use std::time::Instant;
 use std::cmp;
 use std::collections::HashMap;
+use std::cmp::Ordering;
 
 extern crate savefile;
 
-const KOMI: i32 = 0;
-const BOARD_SIZE: BoardSize = BoardSize::S7;
+const KOMI: i32 = 10;
+const BOARD_SIZE: BoardSize = BoardSize::S5;
+const TRAINED_MODEL: &str = "temp/trained.pt";
+const BEST_MODEL: &str = "temp/best.pt";
 
 fn self_play_sim(
   arc_examples: &mut Arc<Mutex<Vec<Example>>>, 
@@ -65,7 +68,7 @@ fn self_play(board_size: i64,
     values: VecDeque::with_capacity(max_history_queue)
   };
   let mut tnet = NNet::new(board_size, action_size, num_channels);
-  tnet.load("temp/best.pt");
+  tnet.load(BEST_MODEL);
   let mut each_mcts = MCTS::duplicate(mcts);
   for i in 0..num_eps {
     each_mcts = MCTS::extend(each_mcts); // reset search tree
@@ -117,11 +120,11 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
   let for_train = eps_cnt % 2 == 0;
   loop {
     episode_step += 1;
-    let mut temp = 0.5;
+    let mut temp = 0.2;
     if episode_step < temp_threshold {
-      temp = 2.0;
-    } else if episode_step < temp_threshold*2 {
       temp = 1.0;
+    } else if episode_step < temp_threshold*2 {
+      temp = 0.5;
     }
     //println!("step {:?} turn {:?}", board.step, board.turn as i32);
     //let mstart = Instant::now();
@@ -163,7 +166,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
 fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64, lr: f64) {
   let mut net = NNet::new(board_size, action_size, num_channels);
   let board = Board::new(BOARD_SIZE);
-  net.load_trainable("temp/best.pt");
+  net.load_trainable(BEST_MODEL);
   let pi = NNet::predict(&net, board.input());
   println!("before {:?}", pi);
 
@@ -181,7 +184,7 @@ fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
   }
   let ex = examples.iter().map(|x| x).collect();
   let _ = net.train(ex, lr);
-  net.save("temp/trained.pt");
+  net.save(TRAINED_MODEL);
 
   let pi = NNet::predict(&net, board.input());
   println!("after {:?}", pi);
@@ -207,9 +210,20 @@ fn arena(mcts_sim_num: u32,
     println!("REJECTING NEW MODEL");
   } else {
     println!("ACCEPTING NEW MODEL");
-    net.load_trainable("temp/trained.pt");
-    net.save("temp/best.pt");
+    net.load_trainable(TRAINED_MODEL);
+    net.save(BEST_MODEL);
   }
+}
+fn max_idx(vals: &Vec<f32>) -> usize {
+  let index_of_max: Option<usize> = vals
+    .iter()
+    .enumerate()
+    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+    .map(|(index, _)| index);
+    match index_of_max {
+      None => 0,
+      Some(n) => n,
+    }
 }
 fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32, count: u64) -> Box<dyn FnMut(&mut Board) -> usize + 'a> {
   let mut rng = rand::thread_rng();
@@ -227,8 +241,9 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32, count: u64) -> Box
       };
       let for_train = false;
       let probs = _mcts.get_action_prob(&x, temp, &predict32, for_train, KOMI);
-      let dist = WeightedIndex::new(&probs).unwrap();
-      dist.sample(&mut rng)
+      // let dist = WeightedIndex::new(&probs).unwrap();
+      // dist.sample(&mut rng)
+      max_idx(&probs)
     }
   })
 }
@@ -279,8 +294,8 @@ pub fn play_games(
     let mut c = 0;
     let mut net = NNet::new(board_size, action_size, num_channels);
     let mut pnet = NNet::new(board_size, action_size, num_channels);
-    net.load("temp/trained.pt");
-    pnet.load("temp/best.pt");
+    net.load(TRAINED_MODEL);
+    pnet.load(BEST_MODEL);
     let mut pmcts = MCTS::duplicate(&each_mcts);
     let mut nmcts = MCTS::duplicate(&each_mcts);
     for i in 0..num {
@@ -305,8 +320,8 @@ pub fn play_games(
     let mut c = 0;
     let mut net = NNet::new(board_size, action_size, num_channels);
     let mut pnet = NNet::new(board_size, action_size, num_channels);
-    net.load("temp/trained.pt");
-    pnet.load("temp/best.pt");
+    net.load(TRAINED_MODEL);
+    pnet.load(BEST_MODEL);
     let mut pmcts = MCTS::duplicate(&each_mcts);
     let mut nmcts = MCTS::duplicate(&each_mcts);
     for i in 0..num {
@@ -363,7 +378,7 @@ impl Coach {
         if lr < 0.0001 {
           lr = 0.0001;
         }
-        let mcts_sim_num: u32 = 300 + i * 2;
+        let mcts_sim_num: u32 = 400 + i * 2;
         let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);
         train_net(&mut tn_ex, board_size, action_size, num_channels, lr);
         arena(mcts_sim_num, board_size, action_size, num_channels, &mut train_mcts);

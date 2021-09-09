@@ -21,7 +21,7 @@ impl MCTS {
       cpuct: cpuct,
       qsa: HashMap::new(), // Q values
       nsa: HashMap::new(), // edge visited times
-      wsa: HashMap::new(), // win probability
+      wsa: HashMap::new(), // win times
       ns: HashMap::new(), // board visited times
       ps: HashMap::new(), // initial policy (returned by neural net)
       es: HashMap::new(), // game ended
@@ -35,7 +35,7 @@ impl MCTS {
       cpuct: mcts.cpuct,
       qsa: HashMap::new(), // Q values
       nsa: HashMap::new(), // edge visited times
-      wsa: HashMap::new(), // win probability
+      wsa: HashMap::new(), // win times
       ns: HashMap::new(), // board visited times
       ps: mcts.ps, // initial policy (returned by neural net)
       es: HashMap::new(), // game ended
@@ -49,7 +49,7 @@ impl MCTS {
       cpuct: mcts.cpuct,
       qsa: HashMap::new(), // Q values
       nsa: HashMap::new(), // edge visited times
-      wsa: HashMap::new(), // win probability
+      wsa: HashMap::new(), // win times
       ns: HashMap::new(), // board visited times
       ps: mcts.ps.clone(), // initial policy (returned by neural net)
       es: HashMap::new(), // game ended
@@ -62,7 +62,7 @@ impl MCTS {
     self.vs.extend(mcts.vs.clone().into_iter());
     self.wr.extend(mcts.wr.clone().into_iter());
   }
-  fn predict_leaf<F>(&mut self, nodes: &Vec<Vec<((u64, usize), f32)>>, inputs: &Vec<Vec<f32>>, hashs: &Vec<u64>, predict: &F)
+  fn predict_leaf<F>(&mut self, nodes: &Vec<Vec<((u64, usize), f32)>>, root_turn: Turn, inputs: &Vec<Vec<f32>>, hashs: &Vec<u64>, predict: &F)
     where 
       F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>
     {
@@ -88,7 +88,7 @@ impl MCTS {
       let sections = &nodes[b];
       for section in sections {
         let (sa, turn) = section;
-        let win = v * turn * 1.0;
+        let win = (v + root_turn as i32 as f32) * turn;
         self.wsa.insert(*sa, self.wsa[&sa] + win);
         self.qsa.insert(*sa, self.wsa[&sa] / self.nsa[&sa] as f32);
       }
@@ -123,7 +123,7 @@ impl MCTS {
       cnt += 1;
       // multiple predicts in one step
       if (cnt < sn && inputs.len() >= 16) || cnt == sn && inputs.len() >= 1 {
-        self.predict_leaf(&nodes, &inputs, &hashs, predict);
+        self.predict_leaf(&nodes, root_turn, &inputs, &hashs, predict);
         inputs = Vec::new();
         hashs= Vec::new();
         nodes = Vec::new();
@@ -165,6 +165,7 @@ impl MCTS {
     }
     if self.es[&s] != 0.0 {
       // terminal node
+      // println!("game end {:?}", self.es[&s]);
       return (self.es[&s], None);
     }
     if !self.ns.contains_key(&s) {
@@ -184,7 +185,7 @@ impl MCTS {
         self.ps.insert(s, valids.iter().map(|&v| v as i32 as f32).collect());
         self.vs.insert(s, valids);
         self.ns.insert(s, 0);
-        let v_loss = 0.0;//root_turn as i32 as f32 * -1.0;
+        let v_loss = root_turn as i32 as f32 * -1.0;
         let leaf = Some((c_board.input(), s));
         return (v_loss, leaf);
       }
@@ -213,7 +214,6 @@ impl MCTS {
     // println!("valids {:?}", valids);
     if a < 0 { panic!("no valid moves"); }
     let a = a as usize;
-    //println!("action {}", a);
 
     // play one step
     let turn = c_board.turn as i32 as f32;
