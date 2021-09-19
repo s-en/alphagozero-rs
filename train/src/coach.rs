@@ -12,10 +12,11 @@ use std::cmp::Ordering;
 
 extern crate savefile;
 
-const KOMI: i32 = 10;
+const KOMI: i32 = 0;
 const BOARD_SIZE: BoardSize = BoardSize::S5;
 const TRAINED_MODEL: &str = "temp/trained.pt";
 const BEST_MODEL: &str = "temp/best.pt";
+const MAX_EXAMPLES: usize = 100000;
 
 fn self_play_sim(
   arc_examples: &mut Arc<Mutex<Vec<Example>>>, 
@@ -25,7 +26,6 @@ fn self_play_sim(
   num_eps: i32, 
   sim_num: i32, 
   mcts: &mut MCTS) {
-  let maxlen_of_queue = 1000000;
   let mut rng = rand::thread_rng();
   let (tx, rx) = mpsc::channel();
   for _ in 0..sim_num {
@@ -46,8 +46,8 @@ fn self_play_sim(
     let train_examples = &mut *arc_examples.lock().unwrap();
     train_examples.extend(results);
     let tlen = train_examples.len();
-    if tlen > maxlen_of_queue {
-      let cut = tlen - maxlen_of_queue;
+    if tlen > MAX_EXAMPLES {
+      let cut = tlen - MAX_EXAMPLES;
       train_examples.drain(..cut);
     }
     train_examples.shuffle(&mut rng);
@@ -85,26 +85,20 @@ fn self_play(board_size: i64,
       }
     }
   }
-  let bw_min = cmp::min(cmp::min(black_win_history.values.len(), white_win_history.values.len()), max_history_queue);
-  if black_win_history.values.len() > bw_min {
-    let cut = black_win_history.values.len() - bw_min;
-    black_win_history.values.drain(..cut);
-  }
-  if white_win_history.values.len() > bw_min {
-    let cut = white_win_history.values.len() - bw_min;
-    white_win_history.values.drain(..cut);
-  }
-  // println!("example black {}, white {}", black_win_history.values.len(), white_win_history.values.len());
+  // 白黒で勝敗数を揃える
+  // let bw_min = cmp::min(cmp::min(black_win_history.values.len(), white_win_history.values.len()), max_history_queue);
+  // if black_win_history.values.len() > bw_min {
+  //   let cut = black_win_history.values.len() - bw_min;
+  //   black_win_history.values.drain(..cut);
+  // }
+  // if white_win_history.values.len() > bw_min {
+  //   let cut = white_win_history.values.len() - bw_min;
+  //   white_win_history.values.drain(..cut);
+  // }
+  println!("example black {}, white {}", black_win_history.values.len(), white_win_history.values.len());
 
-  // shuffle examples before training
-  let mut results: Vec<Example> = Vec::new();
-  //let train_examples = &mut *ex_arc_mut.lock().unwrap();
-  for e in black_win_history.values {
-    results.push(e);
-  }
-  for e in white_win_history.values {
-    results.push(e);
-  }
+  let mut results: Vec<Example> = Vec::from(black_win_history.values);
+  results.append(&mut Vec::from(white_win_history.values));
   results
 }
 fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i32) -> (Vec<Example>, i8) {
@@ -117,14 +111,12 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
   let predict32 = |inputs: Vec<Vec<f32>>| {
     NNet::predict32(net, inputs)
   };
-  let for_train = eps_cnt % 2 == 0;
+  let for_train = false;//eps_cnt % 3 != 0;
   loop {
     episode_step += 1;
-    let mut temp = 0.2;
+    let mut temp = 0.5;
     if episode_step < temp_threshold {
       temp = 1.0;
-    } else if episode_step < temp_threshold*2 {
-      temp = 0.5;
     }
     //println!("step {:?} turn {:?}", board.step, board.turn as i32);
     //let mstart = Instant::now();
@@ -194,7 +186,7 @@ fn arena(mcts_sim_num: u32,
   action_size: i64, 
   num_channels: i64,
   mcts: &mut MCTS) {
-  let update_threshold = 0.6;
+  let update_threshold = 0.55;
   
   // training new network, keeping a copy of the old one
   println!("PITTING AGAINST PREVIOUS VERSION");
@@ -239,7 +231,10 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32, count: u64) -> Box
       let predict32 = |inputs: Vec<Vec<f32>>| {
         NNet::predict32(_net, inputs)
       };
-      let for_train = false;
+      let mut for_train = false;
+      // if count % 10 < 7 {
+      //   for_train = true;
+      // }
       let probs = _mcts.get_action_prob(&x, temp, &predict32, for_train, KOMI);
       // let dist = WeightedIndex::new(&probs).unwrap();
       // dist.sample(&mut rng)
@@ -286,7 +281,7 @@ pub fn play_games(
 
   let (tx, rx) = mpsc::channel();
   let tx2 = mpsc::Sender::clone(&tx);
-  let temp = 0.2;
+  let temp = 0.1;
   let each_mcts = MCTS::duplicate(mcts);
   thread::spawn(move || {
     let mut a = 0;
@@ -310,7 +305,7 @@ pub fn play_games(
         _ => c += 1
       }
     }
-    tx.send((a, b, c)).unwrap();
+    tx.send((a, b, c, "WHITE CPU")).unwrap();
   });
 
   let each_mcts = MCTS::duplicate(mcts);
@@ -336,11 +331,11 @@ pub fn play_games(
         _ => c += 1
       }
     }
-    tx2.send((a, b, c)).unwrap();
+    tx2.send((a, b, c, "BLACK CPU")).unwrap();
   });
   for results in rx {
-    let (a, b, c) = results;
-    println!("Arena Results {:?} {:?} {:?}", a, b, c);
+    let (a, b, c, cpu) = results;
+    println!("Arena Results {:?} {:?} {:?} {:?}", a, b, c, cpu);
     one_won += a;
     two_won += b;
     draws += c;
@@ -374,9 +369,9 @@ impl Coach {
     let train_net_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("start training... round:{}", i);
-        let mut lr = 0.0005 - 0.000002 * i as f64;
-        if lr < 0.0001 {
-          lr = 0.0001;
+        let mut lr = 0.00005 - 0.0000002 * i as f64;
+        if lr < 0.00001 {
+          lr = 0.00001;
         }
         let mcts_sim_num: u32 = 400 + i * 2;
         let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);

@@ -3,6 +3,7 @@ pub use igo::*;
 extern crate console_error_panic_hook;
 use std::panic;
 use js_sys::{Float32Array, Number, Boolean};
+use std::cmp::Ordering;
 
 extern crate wasm_bindgen;
 use wasm_bindgen::prelude::*;
@@ -28,6 +29,18 @@ fn get_board(board_size: &Number, stones: &Float32Array, turn: &Number, pass_cnt
   board
 }
 
+pub fn max_idx(vals: &Vec<f32>) -> usize {
+  let index_of_max: Option<usize> = vals
+    .iter()
+    .enumerate()
+    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+    .map(|(index, _)| index);
+    match index_of_max {
+      None => 0,
+      Some(n) => n,
+    }
+}
+
 #[wasm_bindgen]
 pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, sim_num: u32) -> Float32Array {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -44,11 +57,43 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
     let jsoutput = jspredict(Float32Array::from(&input[..]));
     rspredict(jsoutput, len, asize)
   }
-  let temp = 0.1;
+  let temp = 0.0;
   let for_train = false;
   let pi = mcts.get_action_prob(&board, temp, &predict, for_train, 0);
   let pijs = Float32Array::from(&pi[..]);
   return pijs;
+}
+
+#[wasm_bindgen]
+pub fn playout(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, max_play: Number) -> Float32Array {
+  panic::set_hook(Box::new(console_error_panic_hook::hook));
+  let mut board = get_board(&board_size, &stones, &turn, &pass_cnt);
+  let sim_num = 16;
+  let mut mcts = MCTS::new(sim_num, 1.0); // reset search tree
+  fn predict(inputs: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
+    let len = inputs.len();
+    let mut asize:usize = 0;
+    let mut input = Vec::new();
+    for row in inputs {
+      asize = row.len() / 12 + 1;
+      input.extend(row);
+    }
+    let jsoutput = jspredict(Float32Array::from(&input[..]));
+    rspredict(jsoutput, len, asize)
+  }
+  let temp = 0.0;
+  let for_train = false;
+  let komi = 0;
+  let mut play_cnt = 0;
+  while board.game_ended(false, komi) == 0 && play_cnt < max_play.value_of() as u32 {
+    let pi = mcts.get_action_prob(&board, temp, &predict, for_train, 0);
+    let action = max_idx(&pi) as u32;
+    board.action(action, board.turn);
+    play_cnt += 1;
+  }
+  let mut res = board.black.vec();
+  res.append(&mut board.white.vec());
+  return Float32Array::from(&res[..]);
 }
 
 #[wasm_bindgen]

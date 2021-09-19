@@ -1,5 +1,6 @@
 use super::*;
 use std::cmp::Ordering;
+use std::cmp::min;
 
 pub fn max_idx(vals: &Vec<f32>) -> usize {
   let index_of_max: Option<usize> = vals
@@ -102,6 +103,11 @@ impl MCTS {
     let amax = c_board.action_size();
     let sn = self.sim_num;
     let root_turn = c_board.turn;
+    // init
+    self.qsa = HashMap::new();
+    self.nsa = HashMap::new();
+    self.wsa = HashMap::new();
+    self.ns = HashMap::new();
     // if for_train && root_turn == Turn::White {
     //   // handicap for white player
     //   sn *= 2;
@@ -133,7 +139,7 @@ impl MCTS {
     for a in 0..amax {
       let mut val = 0;
       if self.nsa.contains_key(&(s, a)) {
-        val = self.nsa[&(s, a)];
+        val = min(self.nsa[&(s, a)], 1000000); // inf not allowed
       }
       counts.push(val as f32);
     }
@@ -151,7 +157,7 @@ impl MCTS {
       // avoid devide by zero
       probs = c_board.vec_valid_moves(root_turn).iter().map(|&x| x as i32 as f32).collect(); // random move
     } else {
-      probs= counts.iter().map(|x| x / counts_sum).collect();
+      probs = counts.iter().map(|x| x / counts_sum).collect();
     }
     // let end = start.elapsed();
     // println!("getactionprob {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
@@ -171,6 +177,7 @@ impl MCTS {
     if !self.ns.contains_key(&s) {
       // leaf node
       let valids;
+      //println!("{}", c_board);
       if self.wr.contains_key(&s) {
         // has cache
         self.ns.insert(s, 0);
