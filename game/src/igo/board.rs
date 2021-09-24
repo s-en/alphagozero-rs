@@ -292,18 +292,11 @@ impl Board {
   pub fn game_ended(&self, auto_resign: bool, komi: i32) -> i8 {
     let s = self.size().pow(2);
     let diff = self.count_diff();
-    if auto_resign && diff.abs() < s as i32 / 2 {
-      return 0;
-      // win large amout
-    } else {
-      if self.pass_cnt < 2 && self.step < s * 3{
-        return 0;
-        // pass twice
-        // step over *3 times
-      }
+    if self.pass_cnt >= 2 || (auto_resign && diff.abs() >= s as i32 / 2) || self.step >= s * 3{
+      if diff > komi { return 1; }
+      return -1;
     }
-    if diff > komi { return 1; }
-    return -1;
+    return 0;
   }
   pub fn get_kifu_sgf(&self) -> String {
     let mut kifu = "(;GM[1]SZ[".to_string() + &(self.size as i32).to_string() + &"];".to_string();

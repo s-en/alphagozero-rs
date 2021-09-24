@@ -54,5 +54,4 @@ pub struct MCTS {
   pub ps: HashMap<u64, Vec<f32>>, // initial policy (returned by neural net)
   es: HashMap<u64, f32>, // game ended
   pub vs: HashMap<u64, Vec<bool>>, // valid moves
-  pub wr: HashMap<u64, f32>, // win rate
 }

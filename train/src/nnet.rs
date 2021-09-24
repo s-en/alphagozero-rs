@@ -153,8 +153,8 @@ impl NNet {
       panic!("trainable_model not found");
     }
     let mut optimizer = nn::Adam::default().build(&self.vs, lr)?;
-    let epochs: i32 = examples.len() as i32 / 50 + 1;
-    let batch_size = 512;
+    let batch_size: usize = 128;
+    let epochs: i32 = 1000;
     println!("start train examples:{}", examples.len());
     let mut rnd = rand::thread_rng();
     trainable_model.set_train();

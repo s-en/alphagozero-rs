@@ -17,6 +17,7 @@ const BOARD_SIZE: BoardSize = BoardSize::S5;
 const TRAINED_MODEL: &str = "temp/trained.pt";
 const BEST_MODEL: &str = "temp/best.pt";
 const MAX_EXAMPLES: usize = 100000;
+const FOR_TRAIN_ARENA: bool = false;
 
 fn self_play_sim(
   arc_examples: &mut Arc<Mutex<Vec<Example>>>, 
@@ -69,11 +70,9 @@ fn self_play(board_size: i64,
   };
   let mut tnet = NNet::new(board_size, action_size, num_channels);
   tnet.load(BEST_MODEL);
-  let mut each_mcts = MCTS::duplicate(mcts);
   for i in 0..num_eps {
-    each_mcts = MCTS::extend(each_mcts); // reset search tree
+    let mut each_mcts = MCTS::duplicate(mcts);
     let ep_results = execute_episode(rng, &mut each_mcts, &tnet, i);
-    mcts.append(&each_mcts);
     //println!("before await");
     let (examples, r) = ep_results;
     //println!("after await examples:{}", examples.len());
@@ -112,15 +111,17 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
     NNet::predict32(net, inputs)
   };
   let for_train = false;//eps_cnt % 3 != 0;
+  let auto_resign = true;
+  let self_play = true;
   loop {
     episode_step += 1;
-    let mut temp = 0.5;
-    if episode_step < temp_threshold {
-      temp = 1.0;
-    }
+    let mut temp = 1.0;
+    // if episode_step < temp_threshold {
+    //   temp = 1.0;
+    // }
     //println!("step {:?} turn {:?}", board.step, board.turn as i32);
     //let mstart = Instant::now();
-    let pi = mcts.get_action_prob(&board, temp, &predict32, for_train, KOMI);
+    let pi = mcts.get_action_prob(&board, temp, &predict32, auto_resign, for_train, self_play, KOMI);
     // let mend = mstart.elapsed();
     // println!("get_action_prob {}.{:03}秒", mend.as_secs(), mend.subsec_nanos() / 1_000_000);
     
@@ -217,39 +218,40 @@ fn max_idx(vals: &Vec<f32>) -> usize {
       Some(n) => n,
     }
 }
-fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32, count: u64) -> Box<dyn FnMut(&mut Board) -> usize + 'a> {
+fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32) -> Box<dyn FnMut(&mut Board, u64) -> usize + 'a> {
   let mut rng = rand::thread_rng();
-  Box::new(move |x: &mut Board| -> usize {
-    if temp >= 1.0 {
-      let mut valids: Vec<usize> = x.vec_valid_moves(x.turn).iter().enumerate().map(|(i, &val)| {
-        if val { i } else { 10000 }
-      }).filter(|&r| r < 10000).collect();
-      valids.shuffle(&mut rng);
-      // println!("{:?}", valids);
-      valids[0]
-    } else {
-      let predict32 = |inputs: Vec<Vec<f32>>| {
-        NNet::predict32(_net, inputs)
-      };
-      let mut for_train = false;
-      // if count % 10 < 7 {
-      //   for_train = true;
-      // }
-      let probs = _mcts.get_action_prob(&x, temp, &predict32, for_train, KOMI);
-      // let dist = WeightedIndex::new(&probs).unwrap();
-      // dist.sample(&mut rng)
+  Box::new(move |x: &mut Board, count: u64| -> usize {
+    let predict32 = |inputs: Vec<Vec<f32>>| {
+      NNet::predict32(_net, inputs)
+    };
+    let mut for_train = FOR_TRAIN_ARENA;
+    let self_play = true;
+    let auto_resign = true;
+    // if count % 10 < 7 {
+    //   for_train = true;
+    // }
+    let mut t = temp;
+    // if count >= BOARD_SIZE as u64 *2 {
+    //   // 手数が後半になったら手のバラツキを少なくする
+    //   t = 0.0;
+    // }
+    let probs = _mcts.get_action_prob(&x, t, &predict32, auto_resign, for_train, self_play, KOMI);
+    if temp == 0.0 {
       max_idx(&probs)
+    } else {
+      let dist = WeightedIndex::new(&probs).unwrap();
+      dist.sample(&mut rng)
     }
   })
 }
-pub fn play_game<F: FnMut(&mut Board) -> usize>(player1: &mut F, player2: & mut F, count: u32) -> i8 {
+pub fn play_game<F: FnMut(&mut Board, u64) -> usize>(player1: &mut F, player2: & mut F, episode: u32) -> i8 {
   let players = [player2, player1];
   let mut cur_player = 1;
   let mut board = Board::new(BOARD_SIZE);
-  let mut it = 0;
+  let mut count = 0;
   while board.game_ended(false, KOMI) == 0 {
-    it += 1;
-    let action = players[cur_player](&mut board);
+    count += 1;
+    let action = players[cur_player](&mut board, count);
     let valids = board.vec_valid_moves(board.turn);
     if !valids[action] {
       println!("Action {} is not valid!", action);
@@ -261,7 +263,7 @@ pub fn play_game<F: FnMut(&mut Board) -> usize>(player1: &mut F, player2: & mut 
     board.action(action as u32, board.turn);
     cur_player = (board.turn as i32 + 1) as usize / 2;
   }
-  if count <= 2 {
+  if episode <= 2 {
     println!("{} {}", board.game_ended(false, KOMI) ,board.get_kifu_sgf());
     println!("");
   }
@@ -281,7 +283,7 @@ pub fn play_games(
 
   let (tx, rx) = mpsc::channel();
   let tx2 = mpsc::Sender::clone(&tx);
-  let temp = 0.1;
+  let temp = 0.0;
   let each_mcts = MCTS::duplicate(mcts);
   thread::spawn(move || {
     let mut a = 0;
@@ -291,13 +293,12 @@ pub fn play_games(
     let mut pnet = NNet::new(board_size, action_size, num_channels);
     net.load(TRAINED_MODEL);
     pnet.load(BEST_MODEL);
-    let mut pmcts = MCTS::duplicate(&each_mcts);
-    let mut nmcts = MCTS::duplicate(&each_mcts);
+    
     for i in 0..num {
-      pmcts = MCTS::extend(pmcts); // reset search tree
-      nmcts = MCTS::extend(nmcts); // reset search tree
-      let mut player1 = player(&mut pmcts, &pnet, temp, i as u64);
-      let mut player2 = player(&mut nmcts, &net, temp, i as u64);
+      let mut pmcts = MCTS::duplicate(&each_mcts);
+      let mut nmcts = MCTS::duplicate(&each_mcts);
+      let mut player1 = player(&mut pmcts, &pnet, temp);
+      let mut player2 = player(&mut nmcts, &net, temp);
       let game_result = play_game(&mut player1, &mut player2, i);
       match game_result {
         1 => a += 1,
@@ -317,13 +318,11 @@ pub fn play_games(
     let mut pnet = NNet::new(board_size, action_size, num_channels);
     net.load(TRAINED_MODEL);
     pnet.load(BEST_MODEL);
-    let mut pmcts = MCTS::duplicate(&each_mcts);
-    let mut nmcts = MCTS::duplicate(&each_mcts);
     for i in 0..num {
-      pmcts = MCTS::extend(pmcts); // reset search tree
-      nmcts = MCTS::extend(nmcts); // reset search tree
-      let mut player1 = player(&mut pmcts, &pnet, temp, i as u64 + 123445);
-      let mut player2 = player(&mut nmcts, &net, temp, i as u64 + 123445);
+      let mut pmcts = MCTS::duplicate(&each_mcts);
+      let mut nmcts = MCTS::duplicate(&each_mcts);
+      let mut player1 = player(&mut pmcts, &pnet, temp);
+      let mut player2 = player(&mut nmcts, &net, temp);
       let game_result = play_game(&mut player2, &mut player1, i);
       match game_result {
         -1 => a += 1,
@@ -355,25 +354,25 @@ impl Coach {
     println!("self playing... warming up");
     {
       let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
-      self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 5, 4, &mut root_mcts);
+      self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 3, 5, &mut root_mcts);
     }
     let self_play_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("self playing... round:{}", i);
-        let mcts_sim_num = 600 + i * 3;
+        let mcts_sim_num = 900 + i * 5;
         let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
-        self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 10, 8, &mut root_mcts);
+        self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 3, 5, &mut root_mcts);
       }
     });
     
     let train_net_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("start training... round:{}", i);
-        let mut lr = 0.00005 - 0.0000002 * i as f64;
-        if lr < 0.00001 {
-          lr = 0.00001;
+        let mut lr = 5e-6 - 2e-8 * i as f64;
+        if lr < 1e-6 {
+          lr = 1e-6;
         }
-        let mcts_sim_num: u32 = 400 + i * 2;
+        let mcts_sim_num: u32 = 200 + i * 3;
         let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);
         train_net(&mut tn_ex, board_size, action_size, num_channels, lr);
         arena(mcts_sim_num, board_size, action_size, num_channels, &mut train_mcts);

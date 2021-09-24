@@ -59,7 +59,9 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
   }
   let temp = 0.0;
   let for_train = false;
-  let pi = mcts.get_action_prob(&board, temp, &predict, for_train, 0);
+  let self_play = false;
+  let auto_resign = true;
+  let pi = mcts.get_action_prob(&board, temp, &predict, auto_resign, for_train, self_play, 0);
   let pijs = Float32Array::from(&pi[..]);
   return pijs;
 }
@@ -68,7 +70,7 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
 pub fn playout(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, max_play: Number) -> Float32Array {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   let mut board = get_board(&board_size, &stones, &turn, &pass_cnt);
-  let sim_num = 16;
+  let sim_num = 100;
   let mut mcts = MCTS::new(sim_num, 1.0); // reset search tree
   fn predict(inputs: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
     let len = inputs.len();
@@ -83,10 +85,12 @@ pub fn playout(board_size: Number, stones: Float32Array, turn: Number, pass_cnt:
   }
   let temp = 0.0;
   let for_train = false;
+  let self_play = false;
+  let auto_resign = true;
   let komi = 0;
   let mut play_cnt = 0;
   while board.game_ended(false, komi) == 0 && play_cnt < max_play.value_of() as u32 {
-    let pi = mcts.get_action_prob(&board, temp, &predict, for_train, 0);
+    let pi = mcts.get_action_prob(&board, temp, &predict, auto_resign, for_train, self_play, 0);
     let action = max_idx(&pi) as u32;
     board.action(action, board.turn);
     play_cnt += 1;
