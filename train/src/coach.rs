@@ -85,15 +85,15 @@ fn self_play(board_size: i64,
     }
   }
   // 白黒で勝敗数を揃える
-  // let bw_min = cmp::min(cmp::min(black_win_history.values.len(), white_win_history.values.len()), max_history_queue);
-  // if black_win_history.values.len() > bw_min {
-  //   let cut = black_win_history.values.len() - bw_min;
-  //   black_win_history.values.drain(..cut);
-  // }
-  // if white_win_history.values.len() > bw_min {
-  //   let cut = white_win_history.values.len() - bw_min;
-  //   white_win_history.values.drain(..cut);
-  // }
+  let bw_min = cmp::min(cmp::min(black_win_history.values.len(), white_win_history.values.len()), max_history_queue);
+  if black_win_history.values.len() > bw_min {
+    let cut = black_win_history.values.len() - bw_min;
+    black_win_history.values.drain(..cut);
+  }
+  if white_win_history.values.len() > bw_min {
+    let cut = white_win_history.values.len() - bw_min;
+    white_win_history.values.drain(..cut);
+  }
   println!("example black {}, white {}", black_win_history.values.len(), white_win_history.values.len());
 
   let mut results: Vec<Example> = Vec::from(black_win_history.values);
@@ -354,14 +354,14 @@ impl Coach {
     println!("self playing... warming up");
     {
       let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
-      self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 3, 5, &mut root_mcts);
+      self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 8, 4, &mut root_mcts);
     }
     let self_play_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("self playing... round:{}", i);
         let mcts_sim_num = 900 + i * 5;
         let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
-        self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 3, 5, &mut root_mcts);
+        self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 8, 4, &mut root_mcts);
       }
     });
     
