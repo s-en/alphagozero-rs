@@ -13,11 +13,11 @@ use std::cmp::Ordering;
 extern crate savefile;
 
 const KOMI: i32 = 0;
-const BOARD_SIZE: BoardSize = BoardSize::S5;
-const TRAINED_MODEL: &str = "temp/trained.pt";
-const BEST_MODEL: &str = "temp/best.pt";
-const MAX_EXAMPLES: usize = 100000;
-const FOR_TRAIN_ARENA: bool = false;
+const BOARD_SIZE: BoardSize = BoardSize::S7;
+const TRAINED_MODEL: &str = "7x7/trained.pt";
+const BEST_MODEL: &str = "7x7/best.pt";
+const MAX_EXAMPLES: usize = 500000;
+const FOR_TRAIN_ARENA: bool = true;
 
 fn self_play_sim(
   arc_examples: &mut Arc<Mutex<Vec<Example>>>, 
@@ -110,8 +110,8 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
   let predict32 = |inputs: Vec<Vec<f32>>| {
     NNet::predict32(net, inputs)
   };
-  let for_train = false;//eps_cnt % 3 != 0;
-  let auto_resign = true;
+  let for_train = true;//eps_cnt % 3 != 0;
+  let prioritize_kill = false;
   let self_play = true;
   loop {
     episode_step += 1;
@@ -121,7 +121,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
     // }
     //println!("step {:?} turn {:?}", board.step, board.turn as i32);
     //let mstart = Instant::now();
-    let pi = mcts.get_action_prob(&board, temp, &predict32, auto_resign, for_train, self_play, KOMI);
+    let pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
     // let mend = mstart.elapsed();
     // println!("get_action_prob {}.{:03}秒", mend.as_secs(), mend.subsec_nanos() / 1_000_000);
     
@@ -226,7 +226,7 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32) -> Box<dyn FnMut(&
     };
     let mut for_train = FOR_TRAIN_ARENA;
     let self_play = true;
-    let auto_resign = true;
+    let prioritize_kill = false;
     // if count % 10 < 7 {
     //   for_train = true;
     // }
@@ -235,7 +235,7 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32) -> Box<dyn FnMut(&
     //   // 手数が後半になったら手のバラツキを少なくする
     //   t = 0.0;
     // }
-    let probs = _mcts.get_action_prob(&x, t, &predict32, auto_resign, for_train, self_play, KOMI);
+    let probs = _mcts.get_action_prob(&x, t, &predict32, prioritize_kill, for_train, self_play, KOMI);
     if temp == 0.0 {
       max_idx(&probs)
     } else {
@@ -368,9 +368,15 @@ impl Coach {
     let train_net_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("start training... round:{}", i);
-        let mut lr = 5e-6 - 2e-8 * i as f64;
-        if lr < 1e-6 {
-          lr = 1e-6;
+        // 5路盤用
+        // let mut lr = 5e-6 - 2e-8 * i as f64;
+        // if lr < 1e-6 {
+        //   lr = 1e-6;
+        // }
+        // 7路盤用
+        let mut lr = 5e-5 - 2e-7 * i as f64;
+        if lr < 1e-5 {
+          lr = 1e-5;
         }
         let mcts_sim_num: u32 = 200 + i * 3;
         let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);

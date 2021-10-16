@@ -60,14 +60,14 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
   let temp = 0.0;
   let for_train = false;
   let self_play = false;
-  let auto_resign = true;
-  let pi = mcts.get_action_prob(&board, temp, &predict, auto_resign, for_train, self_play, 0);
+  let prioritize_kill = false;
+  let pi = mcts.get_action_prob(&board, temp, &predict, prioritize_kill, for_train, self_play, 0);
   let pijs = Float32Array::from(&pi[..]);
   return pijs;
 }
 
 #[wasm_bindgen]
-pub fn playout(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, max_play: Number) -> Float32Array {
+pub fn playout_killed(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, max_play: Number) -> Float32Array {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   let mut board = get_board(&board_size, &stones, &turn, &pass_cnt);
   let sim_num = 100;
@@ -86,17 +86,41 @@ pub fn playout(board_size: Number, stones: Float32Array, turn: Number, pass_cnt:
   let temp = 0.0;
   let for_train = false;
   let self_play = false;
-  let auto_resign = true;
+  let prioritize_kill = true;
   let komi = 0;
   let mut play_cnt = 0;
+  let black_kill = board.kill_point(Turn::Black);
+  let white_kill = board.kill_point(Turn::White);
+  let mut black_stones = black_kill & 0;
+  let mut white_stones = white_kill & 0;
+  // アタリを殺した盤面を再現
+  board.set_stones(Turn::Black, board.black | black_kill);
+  board.remove_death_stones(Turn::White);
+  white_stones = white_stones | board.white;
+  board = get_board(&board_size, &stones, &turn, &pass_cnt);
+  board.set_stones(Turn::White, board.white | white_kill);
+  board.remove_death_stones(Turn::Black);
+  black_stones = black_stones | board.black;
+  board = get_board(&board_size, &stones, &turn, &pass_cnt);
+  // 死んだ石を算出
+  white_stones = white_stones ^ board.white;
+  black_stones = black_stones ^ board.black;
+  // 数手進めて死んだ石を算出
   while board.game_ended(false, komi) == 0 && play_cnt < max_play.value_of() as u32 {
-    let pi = mcts.get_action_prob(&board, temp, &predict, auto_resign, for_train, self_play, 0);
+    let prev_white = board.white;
+    let prev_black = board.black;
+    let pi = mcts.get_action_prob(&board, temp, &predict, prioritize_kill, for_train, self_play, 0);
     let action = max_idx(&pi) as u32;
     board.action(action, board.turn);
     play_cnt += 1;
+    if board.turn == Turn::White {
+      white_stones = white_stones | (prev_white ^ board.white);
+    } else {
+      black_stones = black_stones | (prev_black ^ board.black);
+    }
   }
-  let mut res = board.black.vec();
-  res.append(&mut board.white.vec());
+  let mut res = black_stones.vec();
+  res.append(&mut white_stones.vec());
   return Float32Array::from(&res[..]);
 }
 

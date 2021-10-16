@@ -76,7 +76,7 @@ impl MCTS {
       }
     }
   }
-  pub fn get_action_prob<F>(&mut self, c_board: &Board, temp: f32, predict: &F, auto_resign:bool,  for_train: bool, self_play: bool, komi: i32) -> Vec<f32>
+  pub fn get_action_prob<F>(&mut self, c_board: &Board, temp: f32, predict: &F, prioritize_kill: bool,  for_train: bool, self_play: bool, komi: i32) -> Vec<f32>
     where 
       F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>
     {
@@ -96,7 +96,7 @@ impl MCTS {
     while cnt <= sn {
       let mut nodes_inside: Vec<((u64, usize), f32)> = Vec::new();
       let mut b = c_board.clone();
-      let (_, leaf) = self.search(&mut b, &mut nodes_inside, auto_resign, for_train, self_play, komi);
+      let (_, leaf) = self.search(&mut b, &mut nodes_inside, prioritize_kill, for_train, self_play, komi);
       nodes.push(nodes_inside);
       if let Some(x) = leaf {
         let (input, s) = x;
@@ -140,10 +140,11 @@ impl MCTS {
     // println!("getactionprob {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
     probs
   }
-  pub fn search(&mut self, c_board: &mut Board, nodes: &mut Vec<((u64, usize), f32)>, auto_resign: bool, for_train: bool, self_play:bool, komi: i32) -> (f32, Option<(Vec<f32>, u64)>) {
+  pub fn search(&mut self, c_board: &mut Board, nodes: &mut Vec<((u64, usize), f32)>, prioritize_kill: bool, for_train: bool, self_play:bool, komi: i32) -> (f32, Option<(Vec<f32>, u64)>) {
     let s = c_board.calc_hash();
     //println!("search {} {:?}", c_board, s);
     if !self.es.contains_key(&s) {
+      let auto_resign = true;
       self.es.insert(s, c_board.game_ended(auto_resign, komi) as f32);
     }
     if self.es[&s] != 0.0 {
@@ -195,6 +196,13 @@ impl MCTS {
       }
       probs.push(u);
     }
+    if prioritize_kill {
+      // 石を殺すことを優先する
+      let kp = c_board.kill_point(c_board.turn).vec();
+      for i in 0..kp.len() {
+        probs[i] += kp[i];
+      }
+    }
     // 次の手を選ぶ
     let a: usize;
     if self_play && c_board.step < c_board.size as u32 * 2 {
@@ -229,7 +237,7 @@ impl MCTS {
     let sa = (s, a);
     nodes.push((sa, turn));
     let sstep = c_board.step;
-    let (v, leaf) = self.search(c_board, nodes, auto_resign, for_train, self_play, komi);
+    let (v, leaf) = self.search(c_board, nodes, prioritize_kill, for_train, self_play, komi);
     // if sstep == 1 && a == 25 {
     //   if self.nsa.contains_key(&sa) {
     //     println!("pass wsa {:?} / nsa {:?} = {:?} v {:?}", self.wsa[&sa], self.nsa[&sa], self.wsa[&sa]/self.nsa[&sa] as f32, v);
