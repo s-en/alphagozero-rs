@@ -17,7 +17,7 @@ const BOARD_SIZE: BoardSize = BoardSize::S7;
 const TRAINED_MODEL: &str = "7x7/trained.pt";
 const BEST_MODEL: &str = "7x7/best.pt";
 const MAX_EXAMPLES: usize = 500000;
-const FOR_TRAIN_ARENA: bool = true;
+const FOR_TRAIN: bool = false;
 
 fn self_play_sim(
   arc_examples: &mut Arc<Mutex<Vec<Example>>>, 
@@ -110,7 +110,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
   let predict32 = |inputs: Vec<Vec<f32>>| {
     NNet::predict32(net, inputs)
   };
-  let for_train = true;//eps_cnt % 3 != 0;
+  let for_train = FOR_TRAIN;//eps_cnt % 3 != 0;
   let prioritize_kill = false;
   let self_play = true;
   loop {
@@ -224,7 +224,7 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32) -> Box<dyn FnMut(&
     let predict32 = |inputs: Vec<Vec<f32>>| {
       NNet::predict32(_net, inputs)
     };
-    let mut for_train = FOR_TRAIN_ARENA;
+    let mut for_train = FOR_TRAIN;
     let self_play = true;
     let prioritize_kill = false;
     // if count % 10 < 7 {
@@ -374,9 +374,9 @@ impl Coach {
         //   lr = 1e-6;
         // }
         // 7路盤用
-        let mut lr = 5e-5 - 2e-7 * i as f64;
-        if lr < 1e-5 {
-          lr = 1e-5;
+        let mut lr = 5e-6 - 5e-8 * i as f64;
+        if lr < 1e-7 {
+          lr = 1e-7;
         }
         let mcts_sim_num: u32 = 200 + i * 3;
         let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);

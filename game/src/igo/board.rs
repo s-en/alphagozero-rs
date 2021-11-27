@@ -204,13 +204,10 @@ impl Board {
       if hist.contains(&killed_st) && opp_hist.contains(&killed_op) {
         // ignore kou
         kou = kou | rbit;
-      } else {
-        // ignore suicide
-        suicide = suicide | ds;
       }
     }
     // exclude kou
-    let valids = kuten ^ kou ^ suicide;
+    let valids = kuten ^ kou;
     valids
   }
   pub fn valid_moves_for_train(&self, color: Turn) -> Stones {

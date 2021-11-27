@@ -61,7 +61,12 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
   let for_train = false;
   let self_play = false;
   let prioritize_kill = false;
-  let pi = mcts.get_action_prob(&board, temp, &predict, prioritize_kill, for_train, self_play, 0);
+  let mut komi = 0;
+  if(board.black.count_ones() < 5){
+    // 最初のころは引き分けを許容しない
+    komi = -1;
+  }
+  let pi = mcts.get_action_prob(&board, temp, &predict, prioritize_kill, for_train, self_play, komi);
   let pijs = Float32Array::from(&pi[..]);
   return pijs;
 }
@@ -70,7 +75,7 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
 pub fn playout_killed(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, max_play: Number) -> Float32Array {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   let mut board = get_board(&board_size, &stones, &turn, &pass_cnt);
-  let sim_num = 100;
+  let sim_num = 30;
   let mut mcts = MCTS::new(sim_num, 1.0); // reset search tree
   fn predict(inputs: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
     let len = inputs.len();
