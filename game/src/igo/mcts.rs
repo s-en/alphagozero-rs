@@ -105,7 +105,7 @@ impl MCTS {
       }
       cnt += 1;
       // multiple predicts in one step
-      if (cnt < sn && inputs.len() >= 16) || cnt == sn && inputs.len() >= 1 {
+      if (cnt < sn && inputs.len() >= 3) || cnt == sn && inputs.len() >= 1 {
         self.predict_leaf(&nodes, &inputs, &hashs, predict);
         inputs = Vec::new();
         hashs= Vec::new();
@@ -155,11 +155,11 @@ impl MCTS {
     if !self.ns.contains_key(&s) {
       // leaf node
       let valids;
-      if for_train {
-        valids = c_board.vec_valid_moves_for_train(c_board.turn);
-      } else {
-        valids = c_board.vec_valid_moves(c_board.turn);
-      }
+      //if for_train {
+      valids = c_board.vec_valid_moves_for_train(c_board.turn);
+      // } else {
+      //   valids = c_board.vec_valid_moves(c_board.turn);
+      // }
       self.ps.insert(s, valids.iter().map(|&v| v as i32 as f32).collect());
       self.vs.insert(s, valids);
       self.ns.insert(s, 0);
