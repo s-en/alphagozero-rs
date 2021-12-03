@@ -149,7 +149,7 @@ impl Board {
     let amax = self.action_size() - 1;
     let mut res: Vec<bool> = vec![false; self.action_size()];
     for i in 0..amax {
-      let key = stones >> i & 1 == 1;
+      let key = stones >> i as u128 & 1 == 1;
       res[i] = key;
     }
     res[amax] = true; // pass
@@ -161,7 +161,7 @@ impl Board {
     let mut res: Vec<bool> = vec![false; self.action_size()];
     let mut true_cnt = 0;
     for i in 0..amax {
-      let key = stones >> i & 1 == 1;
+      let key = stones >> i as u128 & 1 == 1;
       res[i] = key;
       if key {
         true_cnt += 1;
@@ -184,8 +184,8 @@ impl Board {
     let op_surround_kuten = kuten & (
       (op >> 1 | self.edge(Dir::Right)) &
       (op << 1 | self.edge(Dir::Left)) &
-      (op >> s | self.edge(Dir::Down)) &
-      (op << s | self.edge(Dir::Up)));
+      (op >> s as u128 | self.edge(Dir::Down)) &
+      (op << s as u128 | self.edge(Dir::Up)));
 
     // find for kou
     let mut kou = Stones::new(self.size);
@@ -222,13 +222,13 @@ impl Board {
     let st_surround_kuten = kuten & (
       (st >> 1 | self.edge(Dir::Right)) &
       (st << 1 | self.edge(Dir::Left)) &
-      (st >> s | self.edge(Dir::Down)) &
-      (st << s | self.edge(Dir::Up)));
+      (st >> s as u128 | self.edge(Dir::Down)) &
+      (st << s as u128 | self.edge(Dir::Up)));
     let op_surround_kuten = kuten & (
       (op >> 1 | self.edge(Dir::Right)) &
       (op << 1 | self.edge(Dir::Left)) &
-      (op >> s | self.edge(Dir::Down)) &
-      (op << s | self.edge(Dir::Up)));
+      (op >> s as u128 | self.edge(Dir::Down)) &
+      (op << s as u128 | self.edge(Dir::Up)));
     let surround_kuten = st_surround_kuten | op_surround_kuten;
 
     // ignore suicide
@@ -261,8 +261,8 @@ impl Board {
     let dbeside = surround_kuten & (
       (dstone >> 1 & !self.edge(Dir::Right)) |
       (dstone << 1 & !self.edge(Dir::Left)) |
-      (dstone >> s & !self.edge(Dir::Down)) |
-      (dstone << s & !self.edge(Dir::Up)));
+      (dstone >> s as u128 & !self.edge(Dir::Down)) |
+      (dstone << s as u128 & !self.edge(Dir::Up)));
     let valids = (kuten & !surround_kuten) | dbeside;
     valids
   }
@@ -338,6 +338,7 @@ impl Board {
 
     let stones = self.stones(turn);
     // hit stone
+    let addStone = Stones::new(self.size);
     self.set_stones(turn, stones | 1 << mov);
     // remove opp color
     self.remove_death_stones(turn.rev());
@@ -357,8 +358,8 @@ impl Board {
     let sc = bw & (
       (bw >> 1 | self.edge(Dir::Right)) &
       (bw << 1 | self.edge(Dir::Left)) &
-      (bw >> s | self.edge(Dir::Down)) &
-      (bw << s | self.edge(Dir::Up)));
+      (bw >> s as u128 | self.edge(Dir::Down)) &
+      (bw << s as u128 | self.edge(Dir::Up)));
     let mut sc = ps & sc;
     // alive when any aliveStone beside
     let mut death = bw;
@@ -368,8 +369,8 @@ impl Board {
       sc = sc & !(
         sc & (alive >> 1 & !self.edge(Dir::Right)) |
         sc & (alive << 1 & !self.edge(Dir::Left)) |
-        sc & (alive >> s & !self.edge(Dir::Down)) |
-        sc & (alive << s & !self.edge(Dir::Up))
+        sc & (alive >> s as u128 & !self.edge(Dir::Down)) |
+        sc & (alive << s as u128 & !self.edge(Dir::Up))
       );
     }
     death
@@ -512,8 +513,8 @@ impl Display for Board {
           continue;
         }
         let a = x - 1 + (y - 1)*size;
-        let b = self.black >> a & 1;
-        let w = self.white >> a & 1;
+        let b = self.black >> a as u128 & 1;
+        let w = self.white >> a as u128 & 1;
         if b == 1 {
           bstr.push_str("o");
         } else if w == 1 {

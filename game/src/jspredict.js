@@ -1,17 +1,17 @@
 let nncache = null;
-const BSIZE = 5;
+const BSIZE = 7;
 
 (async function () {
   await tf.ready();
   // console.log(`back ${tf.getBackend()}`);
-  nncache = await tf.loadGraphModel('/assets/jsmodel/5x5/model.json');
+  nncache = await tf.loadGraphModel(`/assets/jsmodel/${BSIZE}x${BSIZE}/model.json`);
   // warm-up
   const zeros = tf.zeros([16, 12, BSIZE, BSIZE]);
   const prods = nncache.execute({
     'x_1:0': zeros
   });
   prods.dataSync();
-  postMessage({msg: (await tf.getBackend())});
+  //postMessage({msg: (await tf.getBackend())});
   postMessage({isReady: true});
 }());
 

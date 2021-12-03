@@ -62,7 +62,7 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
   let self_play = false;
   let prioritize_kill = false;
   let mut komi = 0;
-  if(board.black.count_ones() < 5){
+  if board.black.count_ones() < 5 {
     // 最初のころは引き分けを許容しない
     komi = -1;
   }

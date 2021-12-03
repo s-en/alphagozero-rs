@@ -136,7 +136,7 @@ impl Stones {
     let mut vec: Vec<f32> = vec![0.0; smax];
     let mut cnt = 0;
     for i in 0..smax {
-      if *self >> i & 1 == 1 {
+      if *self >> i as u128 & 1 == 1 {
         vec[cnt] = 1.0;
       } else {
         vec[cnt] = 0.0;
@@ -161,7 +161,7 @@ impl Stones {
 
 macro_rules! add_op {
   ($opr:tt, $left:ty) => {
-    impl_op!($opr |a: $left, b: usize| -> $left {
+    impl_op!($opr |a: $left, b: u128| -> $left {
       match a {
         Stones::A32(n) => Stones::A32(n $opr b as u32),
         Stones::A64(n) => Stones::A64(n $opr b as u64),
