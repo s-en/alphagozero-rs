@@ -155,11 +155,11 @@ impl MCTS {
     if !self.ns.contains_key(&s) {
       // leaf node
       let valids;
-      //if for_train {
-      valids = c_board.vec_valid_moves_for_train(c_board.turn);
-      // } else {
-      //   valids = c_board.vec_valid_moves(c_board.turn);
-      // }
+      if for_train {
+        valids = c_board.vec_valid_moves_for_train(c_board.turn);
+      } else {
+        valids = c_board.vec_valid_moves(c_board.turn);
+      }
       self.ps.insert(s, valids.iter().map(|&v| v as i32 as f32).collect());
       self.vs.insert(s, valids);
       self.ns.insert(s, 0);
@@ -205,7 +205,7 @@ impl MCTS {
     }
     // 次の手を選ぶ
     let a: usize;
-    if self_play && c_board.step < c_board.size as u32 * 2 {
+    if self_play && c_board.step < c_board.size as u32 {
       // 確率で次の手を選ぶ
       let pmin = probs.iter().fold(f32::INFINITY, |m, v| v.min(m));
       probs = probs.iter().map(|&p| if p==0.0 {0.0} else {p-pmin+0.0000001}).collect(); // マイナスを許容しない

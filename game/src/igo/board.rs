@@ -144,6 +144,7 @@ impl Board {
       BoardSize::S9 => stone & Stones::new128(0b111111111_111111111_111111111_111111111_111111111_111111111_111111111_111111111_111111111),
     }
   }
+  // 本来のルールの有効手
   pub fn vec_valid_moves(&self, color: Turn) -> Vec<bool> {
     let stones = self.valid_moves(color);
     let amax = self.action_size() - 1;
@@ -152,9 +153,28 @@ impl Board {
       let key = stones >> i as u128 & 1 == 1;
       res[i] = key;
     }
+    // 常にパスできる
     res[amax] = true; // pass
     res
   }
+  // CPU探索用の有効手
+  pub fn vec_valid_moves_for_search(&self, color: Turn) -> Vec<bool> {
+    let stones = self.valid_moves_for_train(color);
+    let amax = self.action_size() - 1;
+    let mut res: Vec<bool> = vec![false; self.action_size()];
+    let mut true_cnt = 0;
+    for i in 0..amax {
+      let key = stones >> i as u128 & 1 == 1;
+      res[i] = key;
+      if key {
+        true_cnt += 1;
+      }
+    }
+    // 常にパスできる
+    res[amax] = true; // pass
+    res
+  }
+  // 学習初期で利用したい有効手
   pub fn vec_valid_moves_for_train(&self, color: Turn) -> Vec<bool> {
     let stones = self.valid_moves_for_train(color);
     let amax = self.action_size() - 1;
@@ -168,10 +188,12 @@ impl Board {
       }
     }
     if true_cnt == 0 {
+      // 手がもう無いときだけパスできる
       res[amax] = true; // pass
     }
     res
   }
+  // 禁止はコウのみ
   pub fn valid_moves(&self, color: Turn) -> Stones {
     let s = self.size as usize;
     let bw = self.black | self.white;
@@ -187,7 +209,7 @@ impl Board {
       (op >> s as u128 | self.edge(Dir::Down)) &
       (op << s as u128 | self.edge(Dir::Up)));
 
-    // find for kou
+    // find kou
     let mut kou = Stones::new(self.size);
     let mut suicide = Stones::new(self.size);
     let mut st_try = op_surround_kuten;
@@ -210,6 +232,7 @@ impl Board {
     let valids = kuten ^ kou;
     valids
   }
+  // 自殺手禁止、自分の目埋め禁止
   pub fn valid_moves_for_train(&self, color: Turn) -> Stones {
     let s = self.size as usize;
     let bw = self.black | self.white;
@@ -289,7 +312,7 @@ impl Board {
   pub fn game_ended(&self, auto_resign: bool, komi: i32) -> i8 {
     let s = self.size().pow(2);
     let diff = self.count_diff();
-    if self.pass_cnt >= 2 || (auto_resign && diff.abs() >= s as i32 / 2) || self.step >= s * 3{
+    if self.pass_cnt >= 2 || (auto_resign && diff.abs() >= s as i32 / 2) || self.step >= s * 2 + 5{
       if diff > komi { return 1; }
       return -1;
     }

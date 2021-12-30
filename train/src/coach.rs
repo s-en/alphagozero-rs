@@ -12,12 +12,12 @@ use std::cmp::Ordering;
 
 extern crate savefile;
 
-const KOMI: i32 = 0;
+const KOMI: i32 = 5;
 const BOARD_SIZE: BoardSize = BoardSize::S7;
 const TRAINED_MODEL: &str = "7x7/trained.pt";
 const BEST_MODEL: &str = "7x7/best.pt";
-const MAX_EXAMPLES: usize = 500000;
-const FOR_TRAIN: bool = false;
+const MAX_EXAMPLES: usize = 20000;
+const FOR_TRAIN: bool = true;
 
 fn self_play_sim(
   arc_examples: &mut Arc<Mutex<Vec<Example>>>, 
@@ -60,7 +60,7 @@ fn self_play(board_size: i64,
   num_channels: i64, 
   num_eps: i32,
   mcts: &mut MCTS) -> Vec<Example> {
-  let max_history_queue = 40000;
+  let max_history_queue = MAX_EXAMPLES/10;
   let rng = &mut rand::thread_rng();
   let mut black_win_history = Examples {
     values: VecDeque::with_capacity(max_history_queue)
@@ -110,21 +110,25 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
   let predict32 = |inputs: Vec<Vec<f32>>| {
     NNet::predict32(net, inputs)
   };
-  let for_train = FOR_TRAIN;//eps_cnt % 3 != 0;
+  let for_train = eps_cnt % 3 != 0;
   let prioritize_kill = false;
-  let self_play = true;
+  let self_play = false;
   loop {
     episode_step += 1;
     let mut temp = 1.0;
     // if episode_step < temp_threshold {
-    //   temp = 1.0;
+    //   temp = 3.0;
     // }
     //println!("step {:?} turn {:?}", board.step, board.turn as i32);
     //let mstart = Instant::now();
-    let pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
+    let mut pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
     // let mend = mstart.elapsed();
     // println!("get_action_prob {}.{:03}秒", mend.as_secs(), mend.subsec_nanos() / 1_000_000);
-    
+    // 強制天元
+    if episode_step == 1 && board.turn == Turn::Black && pi[24] < 1.0 {
+      pi[24] = 1.0;
+    }
+
     let dist = WeightedIndex::new(&pi).unwrap();
     let sym = board.symmetries(pi);
     for (b, p) in sym {
@@ -141,7 +145,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
     let r = board.game_ended(true, KOMI);
 
     if r != 0 {
-      // println!("{} {}", r, board.get_kifu_sgf());
+      //println!("{} {}", r, board.get_kifu_sgf());
       // std::process::exit(0x0100);
       let v = r as i32;
       for mut ex in &mut examples {
@@ -187,7 +191,7 @@ fn arena(mcts_sim_num: u32,
   action_size: i64, 
   num_channels: i64,
   mcts: &mut MCTS) {
-  let update_threshold = 0.55;
+  let update_threshold = 0.56;
   
   // training new network, keeping a copy of the old one
   println!("PITTING AGAINST PREVIOUS VERSION");
@@ -224,8 +228,8 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32) -> Box<dyn FnMut(&
     let predict32 = |inputs: Vec<Vec<f32>>| {
       NNet::predict32(_net, inputs)
     };
-    let mut for_train = FOR_TRAIN;
-    let self_play = true;
+    let mut for_train = false;
+    let self_play = false;
     let prioritize_kill = false;
     // if count % 10 < 7 {
     //   for_train = true;
@@ -283,7 +287,7 @@ pub fn play_games(
 
   let (tx, rx) = mpsc::channel();
   let tx2 = mpsc::Sender::clone(&tx);
-  let temp = 0.0;
+  let temp = 0.2;
   let each_mcts = MCTS::duplicate(mcts);
   thread::spawn(move || {
     let mut a = 0;
@@ -350,7 +354,7 @@ impl Coach {
     let mut ex_arc_mut = Arc::new(Mutex::new(train_examples));
     let mut sp_ex = Arc::clone(&ex_arc_mut);
     let mut tn_ex = Arc::clone(&ex_arc_mut);
-    let mcts_sim_num = 600;
+    let mcts_sim_num = 100;
     println!("self playing... warming up");
     {
       let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
@@ -359,9 +363,9 @@ impl Coach {
     let self_play_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("self playing... round:{}", i);
-        let mcts_sim_num = 900 + i * 5;
+        let mcts_sim_num = 200 + i * 5;
         let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
-        self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 8, 4, &mut root_mcts);
+        self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 4, 2, &mut root_mcts);
       }
     });
     
@@ -374,12 +378,16 @@ impl Coach {
         //   lr = 1e-6;
         // }
         // 7路盤用
-        let mut lr = 5e-6 - 5e-8 * i as f64;
-        if lr < 1e-7 {
-          lr = 1e-7;
+        // let mut lr = 5e-5 - 5e-7 * i as f64;
+        // if lr < 1e-6 {
+        //   lr = 1e-6;
+        // }
+        let lr = 3e-6;
+        let mut mcts_sim_num: u32 = 50 + i * 3;
+        if mcts_sim_num > 300 {
+          mcts_sim_num = 300
         }
-        let mcts_sim_num: u32 = 200 + i * 3;
-        let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);
+        let mut train_mcts = MCTS::new(mcts_sim_num, 0.5);
         train_net(&mut tn_ex, board_size, action_size, num_channels, lr);
         arena(mcts_sim_num, board_size, action_size, num_channels, &mut train_mcts);
       }
