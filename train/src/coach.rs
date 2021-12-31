@@ -121,13 +121,10 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
     // }
     //println!("step {:?} turn {:?}", board.step, board.turn as i32);
     //let mstart = Instant::now();
+    let turn =  board.turn;
     let mut pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
     // let mend = mstart.elapsed();
     // println!("get_action_prob {}.{:03}秒", mend.as_secs(), mend.subsec_nanos() / 1_000_000);
-    // 強制天元
-    if episode_step == 1 && board.turn == Turn::Black && pi[24] < 1.0 {
-      pi[24] = 1.0;
-    }
 
     let dist = WeightedIndex::new(&pi).unwrap();
     let sym = board.symmetries(pi);
@@ -139,7 +136,21 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
       };
       examples.push(ex);
     }
-    let action = dist.sample(rng) as u32;
+    let mut action = dist.sample(rng) as u32;
+
+    // 勝率が低いときはパスする
+    let s = board.calc_hash();
+    let sa = (s, action as usize);
+    let bs = BOARD_SIZE as u32;
+    if mcts.qsa.contains_key(&sa) {
+      if turn == Turn::Black && mcts.qsa[&sa] > 0.99 {
+        action = bs * bs;
+      }
+      if turn == Turn::White && mcts.qsa[&sa] < -0.99 {
+        action = bs * bs;
+      }
+    }
+
     board.action(action, board.turn);
 
     let r = board.game_ended(true, KOMI);
@@ -239,13 +250,29 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32) -> Box<dyn FnMut(&
     //   // 手数が後半になったら手のバラツキを少なくする
     //   t = 0.0;
     // }
+    let turn = x.turn;
     let probs = _mcts.get_action_prob(&x, t, &predict32, prioritize_kill, for_train, self_play, KOMI);
+    let mut action: usize;
     if temp == 0.0 {
-      max_idx(&probs)
+      action = max_idx(&probs);
     } else {
       let dist = WeightedIndex::new(&probs).unwrap();
-      dist.sample(&mut rng)
+      action = dist.sample(&mut rng);
     }
+
+    // 勝率が低いときはパスする
+    let s = x.calc_hash();
+    let sa = (s, action as usize);
+    let bs = BOARD_SIZE as usize;
+    if _mcts.qsa.contains_key(&sa) {
+      if turn == Turn::Black && _mcts.qsa[&sa] > 0.99 {
+        action = bs * bs;
+      }
+      if turn == Turn::White && _mcts.qsa[&sa] < -0.99 {
+        action = bs * bs;
+      }
+    }
+    action
   })
 }
 pub fn play_game<F: FnMut(&mut Board, u64) -> usize>(player1: &mut F, player2: & mut F, episode: u32) -> i8 {
