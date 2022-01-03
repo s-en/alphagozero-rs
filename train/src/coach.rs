@@ -280,7 +280,7 @@ pub fn play_game<F: FnMut(&mut Board, u64) -> usize>(player1: &mut F, player2: &
   let mut cur_player = 1;
   let mut board = Board::new(BOARD_SIZE);
   let mut count = 0;
-  while board.game_ended(false, KOMI) == 0 {
+  while board.game_ended(true, KOMI) == 0 {
     count += 1;
     let action = players[cur_player](&mut board, count);
     let valids = board.vec_valid_moves(board.turn);
@@ -295,10 +295,10 @@ pub fn play_game<F: FnMut(&mut Board, u64) -> usize>(player1: &mut F, player2: &
     cur_player = (board.turn as i32 + 1) as usize / 2;
   }
   if episode <= 2 {
-    println!("{} {}", board.game_ended(false, KOMI) ,board.get_kifu_sgf());
+    println!("{} {}", board.game_ended(true, KOMI) ,board.get_kifu_sgf());
     println!("");
   }
-  board.game_ended(false, KOMI)
+  board.game_ended(true, KOMI)
 }
 pub fn play_games(
   num: u32, 

@@ -54,7 +54,7 @@ class DualNet(nn.Module):
         self.conv1 = nn.Conv2d(12, num_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(num_channels)
         self.relu = nn.ReLU(inplace=True)
-        self.layers = self._make_layer(block, num_channels, num_channels, 16, 1)
+        self.layers = self._make_layer(block, num_channels, num_channels, 3, 1)
         self.pi = nn.Sequential(
             nn.Conv2d(num_channels, 32, 1, 1, 0, bias=False), # [1, 32, 5, 5]
             nn.BatchNorm2d(32),
@@ -115,7 +115,7 @@ if __name__ == '__main__':
     bsize = 7
     model = DualNet(bsize, bsize*bsize+1, 32)
     model = model.to(device)
-    dummy = torch.rand([16, 12, bsize, bsize]).to(device)
+    dummy = torch.rand([3, 12, bsize, bsize]).to(device)
     traced_net = torch.jit.trace(model, dummy)
     # print(traced_net)
     # for param in model.parameters():
