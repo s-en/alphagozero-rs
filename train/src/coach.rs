@@ -9,14 +9,15 @@ use std::time::Instant;
 use std::cmp;
 use std::collections::HashMap;
 use std::cmp::Ordering;
+use std::process;
 
 extern crate savefile;
 
 const KOMI: i32 = 5;
 const BOARD_SIZE: BoardSize = BoardSize::S7;
-const TRAINED_MODEL: &str = "7x7/trained.pt";
+const TRAINED_MODEL: &str = "7x7/trained";
 const BEST_MODEL: &str = "7x7/best.pt";
-const MAX_EXAMPLES: usize = 20000;
+const MAX_EXAMPLES: usize = 60000;
 const FOR_TRAIN: bool = true;
 
 fn self_play_sim(
@@ -85,15 +86,21 @@ fn self_play(board_size: i64,
     }
   }
   // 白黒で勝敗数を揃える
-  let bw_min = cmp::min(cmp::min(black_win_history.values.len(), white_win_history.values.len()), max_history_queue);
-  if black_win_history.values.len() > bw_min {
-    let cut = black_win_history.values.len() - bw_min;
-    black_win_history.values.drain(..cut);
-  }
-  if white_win_history.values.len() > bw_min {
-    let cut = white_win_history.values.len() - bw_min;
-    white_win_history.values.drain(..cut);
-  }
+  // let bw_min = cmp::min(cmp::min(black_win_history.values.len(), white_win_history.values.len()), max_history_queue);
+  // if black_win_history.values.len() > bw_min {
+  //   let cut = black_win_history.values.len() - bw_min;
+  //   black_win_history.values.drain(..cut);
+  // }
+  // if white_win_history.values.len() > bw_min {
+  //   let cut = white_win_history.values.len() - bw_min;
+  //   white_win_history.values.drain(..cut);
+  // }
+  // ほとんど黒の勝ちにする
+  // let bw_min = cmp::min(cmp::min(black_win_history.values.len(), 10), max_history_queue);
+  // if white_win_history.values.len() > bw_min {
+  //   let cut = white_win_history.values.len() - 10;
+  //   white_win_history.values.drain(..cut);
+  // }
   println!("example black {}, white {}", black_win_history.values.len(), white_win_history.values.len());
 
   let mut results: Vec<Example> = Vec::from(black_win_history.values);
@@ -113,16 +120,21 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
   let for_train = eps_cnt % 3 != 0;
   let prioritize_kill = false;
   let self_play = false;
+  let mut tengen = false;
   loop {
     episode_step += 1;
-    let mut temp = 1.0;
-    // if episode_step < temp_threshold {
-    //   temp = 3.0;
-    // }
+    let mut temp = 0.5;
+    if episode_step < temp_threshold {
+      temp = 1.0;
+    }
     //println!("step {:?} turn {:?}", board.step, board.turn as i32);
     //let mstart = Instant::now();
     let turn =  board.turn;
     let mut pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
+    // // 強制初手天元
+    // if board.black == 0 && board.white == 0 {
+    //   pi[24] = 1.0;
+    // }
     // let mend = mstart.elapsed();
     // println!("get_action_prob {}.{:03}秒", mend.as_secs(), mend.subsec_nanos() / 1_000_000);
 
@@ -137,19 +149,24 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
       examples.push(ex);
     }
     let mut action = dist.sample(rng) as u32;
+    // // 強制初手天元
+    // if board.black == 0 && board.white == 0 {
+    //   action = 24;
+    //   tengen = true;
+    // }
 
     // 勝率が低いときはパスする
-    let s = board.calc_hash();
-    let sa = (s, action as usize);
-    let bs = BOARD_SIZE as u32;
-    if mcts.qsa.contains_key(&sa) {
-      if turn == Turn::Black && mcts.qsa[&sa] > 0.99 {
-        action = bs * bs;
-      }
-      if turn == Turn::White && mcts.qsa[&sa] < -0.99 {
-        action = bs * bs;
-      }
-    }
+      // let s = board.calc_hash();
+      // let sa = (s, action as usize);
+      // let bs = BOARD_SIZE as u32;
+      // if mcts.qsa.contains_key(&sa) {
+      //   if turn == Turn::Black && mcts.qsa[&sa] > 0.99 {
+      //     action = bs * bs;
+      //   }
+      //   if turn == Turn::White && mcts.qsa[&sa] < -0.99 {
+      //     action = bs * bs;
+      //   }
+      // }
 
     board.action(action, board.turn);
 
@@ -158,7 +175,11 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
     if r != 0 {
       //println!("{} {}", r, board.get_kifu_sgf());
       // std::process::exit(0x0100);
-      let v = r as i32;
+      let mut v = r as i32;
+      // // 初手強制天元の場合黒の勝ち
+      // if tengen {
+      //   v = 1;
+      // }
       for mut ex in &mut examples {
         // v: 1.0 black won
         // v: -1.0 white won
@@ -192,7 +213,7 @@ fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
   }
   let ex = examples.iter().map(|x| x).collect();
   let _ = net.train(ex, lr);
-  net.save(TRAINED_MODEL);
+  net.save(String::from(TRAINED_MODEL) + &process::id().to_string() + ".pt");
 
   let pi = NNet::predict(&net, board.input());
   println!("after {:?}", pi);
@@ -218,7 +239,7 @@ fn arena(mcts_sim_num: u32,
     println!("REJECTING NEW MODEL");
   } else {
     println!("ACCEPTING NEW MODEL");
-    net.load_trainable(TRAINED_MODEL);
+    net.load_trainable(String::from(TRAINED_MODEL) + &process::id().to_string() + ".pt");
     net.save(BEST_MODEL);
   }
 }
@@ -261,17 +282,17 @@ fn player<'a>(_mcts: &'a mut MCTS, _net: &'a NNet, temp: f32) -> Box<dyn FnMut(&
     }
 
     // 勝率が低いときはパスする
-    let s = x.calc_hash();
-    let sa = (s, action as usize);
-    let bs = BOARD_SIZE as usize;
-    if _mcts.qsa.contains_key(&sa) {
-      if turn == Turn::Black && _mcts.qsa[&sa] > 0.99 {
-        action = bs * bs;
-      }
-      if turn == Turn::White && _mcts.qsa[&sa] < -0.99 {
-        action = bs * bs;
-      }
-    }
+    // let s = x.calc_hash();
+    // let sa = (s, action as usize);
+    // let bs = BOARD_SIZE as usize;
+    // if _mcts.qsa.contains_key(&sa) {
+    //   if turn == Turn::Black && _mcts.qsa[&sa] > 0.99 {
+    //     action = bs * bs;
+    //   }
+    //   if turn == Turn::White && _mcts.qsa[&sa] < -0.99 {
+    //     action = bs * bs;
+    //   }
+    // }
     action
   })
 }
@@ -314,7 +335,7 @@ pub fn play_games(
 
   let (tx, rx) = mpsc::channel();
   let tx2 = mpsc::Sender::clone(&tx);
-  let temp = 0.2;
+  let temp = 0.5;
   let each_mcts = MCTS::duplicate(mcts);
   thread::spawn(move || {
     let mut a = 0;
@@ -322,7 +343,7 @@ pub fn play_games(
     let mut c = 0;
     let mut net = NNet::new(board_size, action_size, num_channels);
     let mut pnet = NNet::new(board_size, action_size, num_channels);
-    net.load(TRAINED_MODEL);
+    net.load(String::from(TRAINED_MODEL) + &process::id().to_string() + ".pt");
     pnet.load(BEST_MODEL);
     
     for i in 0..num {
@@ -347,7 +368,7 @@ pub fn play_games(
     let mut c = 0;
     let mut net = NNet::new(board_size, action_size, num_channels);
     let mut pnet = NNet::new(board_size, action_size, num_channels);
-    net.load(TRAINED_MODEL);
+    net.load(String::from(TRAINED_MODEL) + &process::id().to_string() + ".pt");
     pnet.load(BEST_MODEL);
     for i in 0..num {
       let mut pmcts = MCTS::duplicate(&each_mcts);
@@ -381,16 +402,16 @@ impl Coach {
     let mut ex_arc_mut = Arc::new(Mutex::new(train_examples));
     let mut sp_ex = Arc::clone(&ex_arc_mut);
     let mut tn_ex = Arc::clone(&ex_arc_mut);
-    let mcts_sim_num = 100;
+    let mcts_sim_num = 1000;
     println!("self playing... warming up");
     {
       let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
-      self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 8, 4, &mut root_mcts);
+      self_play_sim(&mut ex_arc_mut, board_size, action_size, num_channels, 6, 4, &mut root_mcts);
     }
     let self_play_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("self playing... round:{}", i);
-        let mcts_sim_num = 200 + i * 5;
+        let mcts_sim_num = 1000 + i * 5;
         let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
         self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 4, 2, &mut root_mcts);
       }
@@ -409,12 +430,12 @@ impl Coach {
         // if lr < 1e-6 {
         //   lr = 1e-6;
         // }
-        let lr = 3e-6;
-        let mut mcts_sim_num: u32 = 50 + i * 3;
+        let lr = 5e-5;
+        let mut mcts_sim_num: u32 = 100 + i * 3;
         if mcts_sim_num > 300 {
           mcts_sim_num = 300
         }
-        let mut train_mcts = MCTS::new(mcts_sim_num, 0.5);
+        let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);
         train_net(&mut tn_ex, board_size, action_size, num_channels, lr);
         arena(mcts_sim_num, board_size, action_size, num_channels, &mut train_mcts);
       }
