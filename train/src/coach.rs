@@ -124,13 +124,18 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
   loop {
     episode_step += 1;
     let mut temp = 0.5;
-    if episode_step < temp_threshold {
+    if episode_step == 1 {
+      temp = 5.0;
+    } else if episode_step < temp_threshold {
       temp = 1.0;
     }
-    //println!("step {:?} turn {:?}", board.step, board.turn as i32);
-    //let mstart = Instant::now();
-    let turn =  board.turn;
+    // println!("step {:?} turn {:?}", board.step, board.turn as i32);
+    // let mstart = Instant::now();
+    let turn = board.turn;
     let mut pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
+    // if episode_step == 1 {
+    //   println!("pi {:?}", &pi);
+    // }
     // // 強制初手天元
     // if board.black == 0 && board.white == 0 {
     //   pi[24] = 1.0;
