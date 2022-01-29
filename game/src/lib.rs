@@ -63,10 +63,10 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
   let prioritize_kill = false;
   let mut komi = -1;
   if board_size == 7 {
-    temp = 0.1;
-    if board.black.count_ones() < 4 {
-      temp = 1.0;
-    }
+    temp = 0.5;
+    // if board.black.count_ones() < 4 {
+    //   temp = 1.0;
+    // }
   }
   let mut pi = mcts.get_action_prob(&board, temp, &predict, prioritize_kill, for_train, self_play, komi);
   let best_action = max_idx(&pi);
@@ -163,6 +163,14 @@ pub fn is_valid_move(board_size: Number, stones: Float32Array, turn: Number, pas
   let board = get_board(&board_size, &stones, &turn, &pass_cnt);
   let valids = board.vec_valid_moves(board.turn);
   Boolean::from(valids[action.value_of() as usize])
+}
+
+#[wasm_bindgen]
+pub fn kou_cnt(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, action: Number) -> Number {
+  panic::set_hook(Box::new(console_error_panic_hook::hook));
+  let board = get_board(&board_size, &stones, &turn, &pass_cnt);
+  let kou_cnt = board.kou_cnt(action.value_of() as u32, board.turn);
+  Number::from(kou_cnt)
 }
 
 pub fn rspredict(board: Float32Array, len: usize, asize: usize) -> Vec<(Vec<f32>, f32)> {

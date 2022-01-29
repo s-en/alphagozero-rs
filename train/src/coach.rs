@@ -13,11 +13,11 @@ use std::process;
 
 extern crate savefile;
 
-const KOMI: i32 = 5;
+const KOMI: i32 = 8;
 const BOARD_SIZE: BoardSize = BoardSize::S7;
 const TRAINED_MODEL: &str = "7x7/trained";
 const BEST_MODEL: &str = "7x7/best.pt";
-const MAX_EXAMPLES: usize = 60000;
+const MAX_EXAMPLES: usize = 100000;
 const FOR_TRAIN: bool = true;
 
 fn self_play_sim(
@@ -123,12 +123,13 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
   let mut tengen = false;
   loop {
     episode_step += 1;
-    let mut temp = 0.5;
+    let mut temp = 1.0;
     if episode_step == 1 {
       temp = 5.0;
-    } else if episode_step < temp_threshold {
-      temp = 1.0;
-    }
+    } 
+    // else if episode_step < temp_threshold {
+    //   temp = 1.0;
+    // }
     // println!("step {:?} turn {:?}", board.step, board.turn as i32);
     // let mstart = Instant::now();
     let turn = board.turn;
@@ -407,7 +408,7 @@ impl Coach {
     let mut ex_arc_mut = Arc::new(Mutex::new(train_examples));
     let mut sp_ex = Arc::clone(&ex_arc_mut);
     let mut tn_ex = Arc::clone(&ex_arc_mut);
-    let mcts_sim_num = 1000;
+    let mcts_sim_num = 200;
     println!("self playing... warming up");
     {
       let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
@@ -416,7 +417,7 @@ impl Coach {
     let self_play_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("self playing... round:{}", i);
-        let mcts_sim_num = 1000 + i * 5;
+        let mcts_sim_num = 200 + i * 5;
         let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
         self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 4, 2, &mut root_mcts);
       }
@@ -437,8 +438,8 @@ impl Coach {
         // }
         let lr = 5e-5;
         let mut mcts_sim_num: u32 = 100 + i * 3;
-        if mcts_sim_num > 300 {
-          mcts_sim_num = 300
+        if mcts_sim_num > 120 {
+          mcts_sim_num = 120
         }
         let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);
         train_net(&mut tn_ex, board_size, action_size, num_channels, lr);

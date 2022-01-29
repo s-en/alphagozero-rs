@@ -227,6 +227,10 @@ impl Board {
         // ignore kou
         kou = kou | rbit;
       }
+      if killed_st == st && killed_op == op {
+        // １手前もコウ
+        kou = kou | rbit;
+      }
     }
     // exclude kou
     let valids = kuten ^ kou;
@@ -304,6 +308,32 @@ impl Board {
     }
     kpoint
   }
+  // コウが何手前か返す
+  pub fn kou_cnt(&self, mov: u32, color: Turn) -> i32 {
+    let s = self.size as usize;
+    let bw = self.black | self.white;
+    let st = self.stones(color);
+    let op = self.opp_stones(color);
+    let hist = self.history(color);
+    let opp_hist = self.opp_history(color);
+    // try st
+    let new_try = st | (1 << mov);
+    let ds = self.death_stones(op, new_try); // kill oponent stones first
+    let killed_op = op ^ ds;
+    let ds = self.death_stones(new_try, killed_op); // kill self stone next
+    let killed_st = new_try ^ ds;
+    if killed_st == st && killed_op == op {
+      // 現在と形が変わらないのもコウ
+      return 0;
+    }
+    for i in 0..HIST_SIZE {
+      if hist[i] == killed_st && opp_hist[i] == killed_op {
+        return i as i32 + 1;
+      }
+    }
+    return -1;
+  }
+
   pub fn count_diff(&self) -> i32 {
     let b: i32 = self.black.count_ones() as i32;
     let w: i32 = self.white.count_ones() as i32;

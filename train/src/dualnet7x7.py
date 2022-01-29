@@ -115,7 +115,7 @@ if __name__ == '__main__':
     bsize = 7
     model = DualNet(bsize, bsize*bsize+1, 32)
     model = model.to(device)
-    dummy = torch.rand([3, 12, bsize, bsize]).to(device)
+    dummy = torch.rand([1, 12, bsize, bsize]).to(device)
     traced_net = torch.jit.trace(model, dummy)
     # print(traced_net)
     # for param in model.parameters():

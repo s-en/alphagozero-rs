@@ -44,38 +44,6 @@ impl MCTS {
       vs: HashMap::new(), // valid moves
     }
   }
-  fn predict_leaf<F>(&mut self, nodes: &Vec<Vec<((u64, usize), f32)>>, inputs: &Vec<Vec<f32>>, hashs: &Vec<u64>, predict: &F)
-    where 
-      F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>
-    {
-    let iv = inputs.to_vec();
-    let batch_size = iv.len();
-    let predicts = predict(iv);
-    for b in 0..batch_size {
-      let (ps, v) = &predicts[b];
-      let s = hashs[b];
-      let valids = &self.vs[&s];
-      let mut masked_valids: Vec<f32> = valids.iter().enumerate().map(|(i, x)| *x as i32 as f32 * ps[i]).collect();
-      let sum_ps_s: f32 = masked_valids.iter().sum();
-      if sum_ps_s > 0.0 {
-        masked_valids = masked_valids.iter().map(|x| x / sum_ps_s).collect();
-      } else {
-        println!("all valids moves were masked {:?}", ps);
-        let sum_ps_s: i32 = valids.iter().map(|&x| x as i32).sum();
-        masked_valids = valids.iter().map(|&x| x as i32 as f32 / sum_ps_s as f32).collect();
-      }
-      self.ps.insert(s, masked_valids);
-      // move back down the tree
-      let sections = &nodes[b];
-      for section in sections {
-        let (sa, turn) = section;
-        // v*turn: 予測勝率で更新
-        let win = v * turn + 0.1;
-        self.wsa.insert(*sa, self.wsa[&sa] + win);
-        self.qsa.insert(*sa, self.wsa[&sa] / self.nsa[&sa] as f32);
-      }
-    }
-  }
   pub fn get_action_prob<F>(&mut self, c_board: &Board, temp: f32, predict: &F, prioritize_kill: bool,  for_train: bool, self_play: bool, komi: i32) -> Vec<f32>
     where 
       F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>
@@ -96,21 +64,8 @@ impl MCTS {
     while cnt <= sn {
       let mut nodes_inside: Vec<((u64, usize), f32)> = Vec::new();
       let mut b = c_board.clone();
-      let (_, leaf) = self.search(&mut b, &mut nodes_inside, prioritize_kill, for_train, self_play, komi);
-      nodes.push(nodes_inside);
-      if let Some(x) = leaf {
-        let (input, s) = x;
-        inputs.push(input);
-        hashs.push(s);
-      }
+      self.search(&mut b, predict, prioritize_kill, for_train, self_play, komi);
       cnt += 1;
-      // multiple predicts in one step
-      if (cnt < sn && inputs.len() >= 3) || cnt == sn && inputs.len() >= 1 {
-        self.predict_leaf(&nodes, &inputs, &hashs, predict);
-        inputs = Vec::new();
-        hashs= Vec::new();
-        nodes = Vec::new();
-      }
     }
     let mut counts = Vec::new();
     for a in 0..amax {
@@ -120,7 +75,10 @@ impl MCTS {
       }
       counts.push(val as f32);
     }
+    // println!("wsa: {:?}", self.wsa);
+    //println!("nsa: {:?}", self.nsa);
     //println!("counts: {:?}", counts);
+    //println!("qsa: {:?}", self.qsa);
     if temp == 0.0 {
       let mut probs = vec![0.0; amax];
       let best_idx = max_idx(&counts);
@@ -140,8 +98,12 @@ impl MCTS {
     // println!("getactionprob {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
     probs
   }
-  pub fn search(&mut self, c_board: &mut Board, nodes: &mut Vec<((u64, usize), f32)>, prioritize_kill: bool, for_train: bool, self_play:bool, komi: i32) -> (f32, Option<(Vec<f32>, u64)>) {
+  pub fn search<F>(&mut self, c_board: &mut Board, predict: &F, prioritize_kill: bool, for_train: bool, self_play:bool, komi: i32) -> f32 
+    where 
+      F: Fn(Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)>
+    {
     let s = c_board.calc_hash();
+    let turn = c_board.turn as i32 as f32;
     //println!("search {} {:?}", c_board, s);
     if !self.es.contains_key(&s) {
       let auto_resign = true;
@@ -149,42 +111,41 @@ impl MCTS {
     }
     if self.es[&s] != 0.0 {
       // terminal node
-      // println!("game end {:?}", self.es[&s]);
-      return (self.es[&s], None);
+      //println!("game end {:?}", self.es[&s]);
+      return -self.es[&s] * turn;
     }
     if !self.ns.contains_key(&s) {
       // leaf node
+      let mut inputs: Vec<Vec<f32>> = Vec::new();
+      inputs.push(c_board.input());
+      let (ps, v) = &predict(inputs)[0];
       let valids;
       if for_train {
         valids = c_board.vec_valid_moves_for_train(c_board.turn);
       } else {
         valids = c_board.vec_valid_moves(c_board.turn);
       }
-      self.ps.insert(s, valids.iter().map(|&v| v as i32 as f32).collect());
+      let mut masked_valids: Vec<f32> = valids.iter().enumerate().map(|(i, x)| *x as i32 as f32 * ps[i]).collect();
+      let sum_ps_s: f32 = masked_valids.iter().sum();
+      if sum_ps_s > 0.0 {
+        masked_valids = masked_valids.iter().map(|x| x / sum_ps_s).collect();
+      } else {
+        println!("all valids moves were masked");
+        let sum_ps_s: i32 = valids.iter().map(|&x| x as i32).sum();
+        masked_valids = valids.iter().map(|&x| x as i32 as f32 / sum_ps_s as f32).collect();
+      }
+      self.ps.insert(s, masked_valids);
       self.vs.insert(s, valids);
       self.ns.insert(s, 0);
-      // バーチャルロスを反映
-      for n in nodes {
-        let (sa, _) = n;
-        let win = -0.1;
-        if self.nsa.contains_key(sa) {
-          self.wsa.insert(*sa, self.wsa[sa] + win);
-        } else {
-          self.wsa.insert(*sa, win);
-          self.nsa.insert(*sa, 0);
-        }
-      }
-      let leaf = Some((c_board.input(), s));
-      return (0.0, leaf);
+      return -v * turn;
     }
-    let turn = c_board.turn as i32 as f32;
     let valids = &self.vs[&s];
     // pick best action
     let amax = c_board.action_size();
     let mut probs: Vec<f32> = vec![];
     for a in 0..amax {
       if !valids[a] { 
-        probs.push(0.0);
+        probs.push(-100000000.0);
         continue;
       }
       let u: f32;
@@ -194,6 +155,7 @@ impl MCTS {
       } else {
         u = self.cpuct * self.ps[&s][a] * (self.ns[&s] as f32 + 1e-8).sqrt();
       }
+      //println!("u {:?}", u);
       probs.push(u);
     }
     if prioritize_kill {
@@ -205,6 +167,13 @@ impl MCTS {
     }
     // 次の手を選ぶ
     let a: usize;
+    // // パスをまた選んでないなら強制的に選ぶ
+    // let pass = c_board.action_size() - 1;
+    // if !self.nsa.contains_key(&(s, pass)) {
+    //   // pass
+    //   a = pass;
+    //   //println!("pass");
+    // } else 
     if self_play && c_board.step < c_board.size as u32 {
       // 確率で次の手を選ぶ
       let pmin = probs.iter().fold(f32::INFINITY, |m, v| v.min(m));
@@ -214,9 +183,12 @@ impl MCTS {
       a = dist.sample(rng);
     } else {
       // 最良の手を選ぶ
-      probs = probs.iter().map(|&p| if p==0.0 {-100.0} else {p}).collect(); // ゼロは無視
+      //probs = probs.iter().map(|&p| if p==0.0 {-100.0} else {p}).collect(); // ゼロは無視
       a = max_idx(&probs);
+      //println!("choose best");
     }
+    // println!("turn {:?} a {:?}", turn, a);
+    //println!("probs {:?}", probs[18]);
     // if c_board.step == 1  && a==25{
     //   println!("probs {:?}", probs);
     // }
@@ -224,42 +196,37 @@ impl MCTS {
 
     // play one step
     c_board.action(a as u32, c_board.turn);
+    //println!("{:?}", c_board.get_kifu_sgf());
 
     // maximum step
     if c_board.step > c_board.size as u32 * c_board.size as u32 * 2  {
       // println!("step action {}", a);
       // println!("{:?}", c_board.get_kifu_sgf());
       // println!("{}", c_board);
-      return (0.0, None);
+      let score = c_board.count_diff();
+      if score > 0 {
+        return -turn;
+      }
+      return turn;
     }
 
     // search until leaf node
     let sa = (s, a);
-    nodes.push((sa, turn));
-    let sstep = c_board.step;
-    let (v, leaf) = self.search(c_board, nodes, prioritize_kill, for_train, self_play, komi);
-    // if sstep == 1 && a == 25 {
-    //   if self.nsa.contains_key(&sa) {
-    //     println!("pass wsa {:?} / nsa {:?} = {:?} v {:?}", self.wsa[&sa], self.nsa[&sa], self.wsa[&sa]/self.nsa[&sa] as f32, v);
-    //   }
-    // }
+    let v = self.search(c_board, predict, prioritize_kill, for_train, self_play, komi);
 
     // move back up the tree
-    let mut win = v * turn;
-    // if win < 0.0 {
-    //   win = 0.0;
-    // }
     if self.nsa.contains_key(&sa) {
-      self.wsa.insert(sa, self.wsa[&sa] + win);
+      self.wsa.insert(sa, self.wsa[&sa] + v);
+      //println!("wsa {:?}", self.wsa[&sa]);
       self.nsa.insert(sa, self.nsa[&sa] + 1);
     } else {
-      self.wsa.insert(sa, win);
+      self.wsa.insert(sa, v);
       self.nsa.insert(sa, 1);
     }
     self.qsa.insert(sa, self.wsa[&sa] / self.nsa[&sa] as f32);
     self.ns.insert(s, self.ns[&s] + 1);
     //println!("qsa {:?} = {:?}/{:?}",self.qsa, self.wsa[&sa], self.nsa[&sa]);
     
-    (v, leaf)
+    -v
   }
 }
