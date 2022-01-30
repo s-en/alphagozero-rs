@@ -316,7 +316,11 @@ impl Board {
     let op = self.opp_stones(color);
     let hist = self.history(color);
     let opp_hist = self.opp_history(color);
-    // try st
+    // 既に石のある所はコウではない
+    if (st | op) & (1 << mov) != 0 {
+      return -1;
+    }
+    // １手打ってみて試す
     let new_try = st | (1 << mov);
     let ds = self.death_stones(op, new_try); // kill oponent stones first
     let killed_op = op ^ ds;
