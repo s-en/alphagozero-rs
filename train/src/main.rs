@@ -74,10 +74,10 @@ fn main() {
   // let action_size: i64 = 50;
   // let num_channels: i64 = 32;
   // let mut net = NNet::new(board_size, action_size, num_channels);
-  // net.load_trainable("7x7/best_0124.pt");
-  // let mut mcts = MCTS::new(100, 1.0);
+  // net.load_trainable("7x7/best.pt");
+  // let mut mcts = MCTS::new(200, 1.0);
   // let mut board = Board::new(BoardSize::S7);
-  // //board.action(49, board.turn);
+  // board.action(49, board.turn);
   // // board.action(1, board.turn);
   // // board.action(0, board.turn);
   // // board.action(7, board.turn);
@@ -86,7 +86,7 @@ fn main() {
   //   NNet::predict32(&net, inputs)
   // };
   // let temp = 1.0;
-  // let probs = mcts.get_action_prob(&board, temp, &predict32, false, false, false, 0);
+  // let probs = mcts.get_action_prob(&board, temp, &predict32, false, false, false, 1);
   // println!("probs {:?}", probs);
 
 

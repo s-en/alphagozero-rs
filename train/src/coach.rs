@@ -13,7 +13,7 @@ use std::process;
 
 extern crate savefile;
 
-const KOMI: i32 = 8;
+const KOMI: i32 = 0;
 const BOARD_SIZE: BoardSize = BoardSize::S7;
 const TRAINED_MODEL: &str = "7x7/trained";
 const BEST_MODEL: &str = "7x7/best.pt";
@@ -176,7 +176,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
 
     board.action(action, board.turn);
 
-    let r = board.game_ended(true, KOMI);
+    let r = board.game_ended(false, KOMI);
 
     if r != 0 {
       //println!("{} {}", r, board.get_kifu_sgf());
@@ -307,7 +307,7 @@ pub fn play_game<F: FnMut(&mut Board, u64) -> usize>(player1: &mut F, player2: &
   let mut cur_player = 1;
   let mut board = Board::new(BOARD_SIZE);
   let mut count = 0;
-  while board.game_ended(true, KOMI) == 0 {
+  while board.game_ended(false, KOMI) == 0 {
     count += 1;
     let action = players[cur_player](&mut board, count);
     let valids = board.vec_valid_moves(board.turn);
@@ -322,10 +322,10 @@ pub fn play_game<F: FnMut(&mut Board, u64) -> usize>(player1: &mut F, player2: &
     cur_player = (board.turn as i32 + 1) as usize / 2;
   }
   if episode <= 2 {
-    println!("{} {}", board.game_ended(true, KOMI) ,board.get_kifu_sgf());
+    println!("{} {}", board.game_ended(false, KOMI) ,board.get_kifu_sgf());
     println!("");
   }
-  board.game_ended(true, KOMI)
+  board.game_ended(false, KOMI)
 }
 pub fn play_games(
   num: u32, 

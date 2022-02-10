@@ -346,7 +346,7 @@ impl Board {
   pub fn game_ended(&self, auto_resign: bool, komi: i32) -> i8 {
     let s = self.size().pow(2);
     let diff = self.count_diff();
-    if self.pass_cnt >= 2 || (auto_resign && diff.abs() >= s as i32 / 2) || self.step >= s * 2 + 5{
+    if self.pass_cnt >= 2 || (auto_resign && diff.abs() >= s as i32 / 2) || self.step >= s * 3 + 5{
       if diff > komi { return 1; }
       return -1;
     }
