@@ -13,7 +13,7 @@ use std::process;
 
 extern crate savefile;
 
-const KOMI: i32 = 0;
+const KOMI: i32 = 8;
 const BOARD_SIZE: BoardSize = BoardSize::S7;
 const TRAINED_MODEL: &str = "7x7/trained";
 const BEST_MODEL: &str = "7x7/best.pt";
@@ -408,7 +408,7 @@ impl Coach {
     let mut ex_arc_mut = Arc::new(Mutex::new(train_examples));
     let mut sp_ex = Arc::clone(&ex_arc_mut);
     let mut tn_ex = Arc::clone(&ex_arc_mut);
-    let mcts_sim_num = 200;
+    let mcts_sim_num = 20;
     println!("self playing... warming up");
     {
       let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
@@ -417,7 +417,10 @@ impl Coach {
     let self_play_handle = thread::spawn(move || {
       for i in 0..10000 {
         println!("self playing... round:{}", i);
-        let mcts_sim_num = 200 + i * 5;
+        let mut mcts_sim_num = 20 + i * 3;
+        if mcts_sim_num > 80 {
+          mcts_sim_num = 80
+        }
         let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
         self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 4, 2, &mut root_mcts);
       }
@@ -436,10 +439,10 @@ impl Coach {
         // if lr < 1e-6 {
         //   lr = 1e-6;
         // }
-        let lr = 5e-5;
-        let mut mcts_sim_num: u32 = 100 + i * 3;
-        if mcts_sim_num > 120 {
-          mcts_sim_num = 120
+        let lr = 1e-5;
+        let mut mcts_sim_num: u32 = 10 + i * 2;
+        if mcts_sim_num > 30 {
+          mcts_sim_num = 30
         }
         let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);
         train_net(&mut tn_ex, board_size, action_size, num_channels, lr);

@@ -154,7 +154,7 @@ impl NNet {
     }
     let mut optimizer = nn::Adam::default().build(&self.vs, lr)?;
     let batch_size: usize = 128;
-    let epochs: i32 = 12000;
+    let epochs: i32 = 5000;
     println!("start train examples:{}", examples.len());
     let mut rnd = rand::thread_rng();
     trainable_model.set_train();
