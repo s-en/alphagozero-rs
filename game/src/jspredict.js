@@ -17,7 +17,7 @@ let BSIZE = 5;
     console.log('p loaded');
   
     // warm-up
-    let simCnt = 1;
+    let simCnt = 8;
     if(BSIZE === 5) simCnt = 16;
     const zeros = tf.zeros([simCnt, 12, BSIZE, BSIZE]);
     const prods = nncache.execute({
@@ -33,7 +33,7 @@ export function jspredict(inputs) {
   // console.log("jspredict");
   const len = inputs.length / (12 * BSIZE * BSIZE);
   //console.log(inputs);
-  let simCnt = 1;
+  let simCnt = 8;
   if(BSIZE === 5) simCnt = 16;
   let tmax = simCnt * 12 * BSIZE * BSIZE;
   let tinputs = [...inputs, ...Array(tmax).fill(0)]; // fill zero for tail data
