@@ -74,9 +74,9 @@ impl MCTS {
       let (leaf_sa, turn) = sections.last().unwrap();
       for section in sections.into_iter().rev() {
         let (sa, turn) = section;
-        let mut win = v * turn;
+        let mut win = -v * turn;
         if sa == leaf_sa {
-          win += 1.0;
+          win -= turn;
         }
         self.wsa.insert(*sa, self.wsa[&sa] + win);
         self.qsa.insert(*sa, self.wsa[&sa] / self.nsa[&sa] as f32);
@@ -131,7 +131,7 @@ impl MCTS {
       counts.push(val as f32);
     }
     // println!("wsa: {:?}", self.wsa);
-    //println!("nsa: {:?}", self.nsa);
+    // println!("nsa: {:?}", self.nsa);
     //println!("counts: {:?}", counts);
     //println!("qsa: {:?}", self.qsa);
     if temp == 0.0 {
@@ -157,16 +157,22 @@ impl MCTS {
     let s = c_board.calc_hash();
     let turn = c_board.turn as i32 as f32;
     if !self.es.contains_key(&s) {
-      let auto_resign = true;
-      self.es.insert(s, c_board.game_ended(auto_resign, komi) as f32);
+      let auto_resign = false;
+      let ge = c_board.game_ended(auto_resign, komi) as f32;
+      // if ge != 0.0 {
+      //   println!("game end {:?}", ge);
+      //   println!("{:}", c_board);
+      // }
+      self.es.insert(s, ge);
     }
     if self.es[&s] != 0.0 {
       // terminal node
-      //println!("game end {:?}", self.es[&s]);
-      return (-self.es[&s] * turn, None);
+      // println!("game end {:?}", self.es[&s]);
+      return (-self.es[&s] * turn * 10.0, None);
     }
     if !self.ns.contains_key(&s) {
       // leaf node
+      //println!("{:}", c_board);
       let mut inputs: Vec<Vec<f32>> = Vec::new();
       inputs.push(c_board.input());
       let valids;
@@ -180,7 +186,7 @@ impl MCTS {
       self.ns.insert(s, 0);
       let leaf = Some((c_board.input(), s));
       // virtual loss
-      return (-10.0, leaf);
+      return (-turn, leaf);
     }
     let valids = &self.vs[&s];
     // pick best action
@@ -224,8 +230,15 @@ impl MCTS {
       // 最良の手を選ぶ
       a = max_idx(&probs);
     }
-    // println!("probs {:?}", probs);
-    // println!("action {:?} turn {:?}", a, turn);
+    // if a == 22 {
+    //   println!("probs {:?}", probs);
+    //   println!("action {:?} turn {:?}", a, turn);
+    // }
+    // if a == 49 && turn == 1.0 {
+    //   println!("probs {:?}", probs);
+    //   println!("action {:?} turn {:?}", a, turn);
+    //   println!("{:}", c_board);
+    // }
 
     // play one step
     c_board.action(a as u32, c_board.turn);
@@ -242,18 +255,13 @@ impl MCTS {
     // search until leaf node
     let sa = (s, a);
     nodes.push((sa, turn));
-    let (mut v, leaf) = self.search(c_board, nodes, prioritize_kill, for_train, self_play, komi);
-    let mut win = v;
-    if v < -5.0 {
-      v = 0.0;
-      win = -1.0;
-    }
+    let (v, leaf) = self.search(c_board, nodes, prioritize_kill, for_train, self_play, komi);
     // move back up the tree
     if self.nsa.contains_key(&sa) {
-      self.wsa.insert(sa, self.wsa[&sa] + win);
+      self.wsa.insert(sa, self.wsa[&sa] + v);
       self.nsa.insert(sa, self.nsa[&sa] + 1);
     } else {
-      self.wsa.insert(sa, win);
+      self.wsa.insert(sa, v);
       self.nsa.insert(sa, 1);
     }
     self.qsa.insert(sa, self.wsa[&sa] / self.nsa[&sa] as f32);

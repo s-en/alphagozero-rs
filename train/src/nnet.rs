@@ -84,7 +84,7 @@ impl NNet {
     net.predict_tensor(b)
   }
   pub fn predict_tensor(&self, board: Tensor) -> (Vec<f32>, f32) {
-    let b = board.view([12, self.board_size, self.board_size]).totype(Kind::Float);
+    let b = board.view([15, self.board_size, self.board_size]).totype(Kind::Float);
     let mut pi: Tensor = Tensor::zeros(&[1, self.action_size], (Kind::Float, self.vs.device()));
     let mut v: Tensor = Tensor::zeros(&[1, 1], (Kind::Float, self.vs.device()));
     if let Some(model) = &self.model {
@@ -117,7 +117,7 @@ impl NNet {
   pub fn predict32_tensor(&self, board: Tensor, num: i64) -> Vec<(Vec<f32>, f32)> {
     let mut res = Vec::new();
     tch::no_grad(|| {
-      let b = board.view([num, 12, self.board_size, self.board_size]);
+      let b = board.view([num, 15, self.board_size, self.board_size]);
       let mut pi: Tensor = Tensor::zeros(&[num, self.action_size], (Kind::Float, self.vs.device()));
       let mut v: Tensor = Tensor::zeros(&[num, 1], (Kind::Float, self.vs.device()));
       if let Some(model) = &self.model {
@@ -153,8 +153,8 @@ impl NNet {
       panic!("trainable_model not found");
     }
     let mut optimizer = nn::Adam::default().build(&self.vs, lr)?;
-    let batch_size: usize = 128;
-    let epochs: i32 = 5000;
+    let batch_size: usize = 512;
+    let epochs: i32 = 2000;
     println!("start train examples:{}", examples.len());
     let mut rnd = rand::thread_rng();
     trainable_model.set_train();
@@ -184,7 +184,7 @@ impl NNet {
       let vloss = Vec::<f32>::from(&total_loss)[0];
       loss_hist += vloss;
       loss_cnt += 1;
-      if i % (epochs / 5 + 1) == epochs / 5 {
+      if i % (epochs / 20 + 1) == epochs / 20 {
         println!("loss {:?}", loss_hist / loss_cnt as f32);
         loss_hist = 0.0;
         loss_cnt = 0;

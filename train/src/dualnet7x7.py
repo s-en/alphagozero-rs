@@ -51,7 +51,7 @@ class DualNet(nn.Module):
         block = BasicBlock
         bs = board_size
         self.board_size = board_size
-        self.conv1 = nn.Conv2d(12, num_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(15, num_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(num_channels)
         self.relu = nn.ReLU(inplace=True)
         self.layers = self._make_layer(block, num_channels, num_channels, 9, 1)
@@ -75,7 +75,7 @@ class DualNet(nn.Module):
         self._initialize_weights()
 
     def forward(self, x):
-        x = x.view(-1, 12, self.board_size, self.board_size)
+        x = x.view(-1, 15, self.board_size, self.board_size)
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -115,7 +115,7 @@ if __name__ == '__main__':
     bsize = 7
     model = DualNet(bsize, bsize*bsize+1, 32)
     model = model.to(device)
-    dummy = torch.rand([1, 12, bsize, bsize]).to(device)
+    dummy = torch.rand([1, 15, bsize, bsize]).to(device)
     traced_net = torch.jit.trace(model, dummy)
     # print(traced_net)
     # for param in model.parameters():

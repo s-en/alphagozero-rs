@@ -462,11 +462,20 @@ impl Board {
       vec.append(&mut self.history_black[i].vec());
       vec.append(&mut self.history_white[i].vec());
     }
-    vec.append(&mut vec![color as f32; bs]);
+    vec.append(&mut vec![color as f32; bs]); // 手番
     let valids: Vec<f32> = self.vec_valid_moves(self.turn).iter().map(|&v| v as i32 as f32).collect();
-    vec.append(&mut valids[0..bs].to_vec());
-    vec.append(&mut self.kill_point(self.turn).vec());
-    vec.append(&mut vec![self.pass_cnt as f32; bs]);
+    vec.append(&mut valids[0..bs].to_vec()); // 有効手
+    vec.append(&mut self.kill_point(Turn::Black).vec()); // 殺すor殺される手
+    vec.append(&mut self.kill_point(Turn::White).vec()); // 殺すor殺される手
+    vec.append(&mut vec![self.pass_cnt as f32; bs]); // パスの回数
+    let b: usize = self.black.count_ones() as usize;
+    let w: usize = self.white.count_ones() as usize;
+    let bn = &mut vec![1.0; b];
+    let wn = &mut vec![1.0; w];
+    bn.append(&mut vec![0.0; bs - b]);
+    wn.append(&mut vec![0.0; bs - w]);
+    vec.append(bn); // 黒石の数
+    vec.append(wn); // 白石の数
     vec
   }
   pub fn canonical_form(&self, turn: Turn) -> Board {
