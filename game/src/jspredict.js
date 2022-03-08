@@ -19,7 +19,7 @@ let BSIZE = 5;
     // warm-up
     let simCnt = 8;
     if(BSIZE === 5) simCnt = 16;
-    const zeros = tf.zeros([simCnt, 12, BSIZE, BSIZE]);
+    const zeros = tf.zeros([simCnt, 15, BSIZE, BSIZE]);
     const prods = nncache.execute({
       'x_1:0': zeros
     });
@@ -31,21 +31,21 @@ let BSIZE = 5;
 
 export function jspredict(inputs) {
   // console.log("jspredict");
-  const len = inputs.length / (12 * BSIZE * BSIZE);
+  const len = inputs.length / (15 * BSIZE * BSIZE);
   //console.log(inputs);
   let simCnt = 8;
   if(BSIZE === 5) simCnt = 16;
-  let tmax = simCnt * 12 * BSIZE * BSIZE;
+  let tmax = simCnt * 15 * BSIZE * BSIZE;
   let tinputs = [...inputs, ...Array(tmax).fill(0)]; // fill zero for tail data
   tinputs = tinputs.slice(0, tmax);
   const reshaped = [];
-  const boardSize = [simCnt, 12, BSIZE, BSIZE];
+  const boardSize = [simCnt, 15, BSIZE, BSIZE];
   for(let a=0; a<simCnt; a++){
     reshaped[a] = reshaped[a] || [];
-    for(let b=0; b<12; b++){
+    for(let b=0; b<15; b++){
       reshaped[a][b] = reshaped[a][b] || [];
       for(let c=0; c<BSIZE; c++){
-        const idx = BSIZE*c + BSIZE*BSIZE*b + BSIZE*BSIZE*12*a;
+        const idx = BSIZE*c + BSIZE*BSIZE*b + BSIZE*BSIZE*15*a;
         reshaped[a][b][c] = tinputs.slice(idx, idx+BSIZE);
       }
     }

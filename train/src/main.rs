@@ -61,7 +61,7 @@ fn max_idx(vals: &Vec<f32>) -> usize {
 fn main() {
   unsafe{ torch_sys::dummy_cuda_dependency(); }
   println!("cuda is_available: {}",tch::Cuda::is_available());
-  let bsize = 5;
+  let bsize = 7;
   let mut coach = Coach {
     board_size: bsize,
     action_size: bsize*bsize+1,

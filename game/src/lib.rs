@@ -51,7 +51,7 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
     let mut asize:usize = 0;
     let mut input = Vec::new();
     for row in inputs {
-      asize = row.len() / 12 + 1;
+      asize = row.len() / 15 + 1;
       input.extend(row);
     }
     let jsoutput = jspredict(Float32Array::from(&input[..]));
@@ -92,7 +92,7 @@ pub fn playout_killed(board_size: Number, stones: Float32Array, turn: Number, pa
     let mut asize:usize = 0;
     let mut input = Vec::new();
     for row in inputs {
-      asize = row.len() / 12 + 1;
+      asize = row.len() / 15 + 1;
       input.extend(row);
     }
     let jsoutput = jspredict(Float32Array::from(&input[..]));
