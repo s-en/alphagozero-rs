@@ -17,7 +17,7 @@ const KOMI: i32 = 0;
 const BOARD_SIZE: BoardSize = BoardSize::S7;
 const TRAINED_MODEL: &str = "7x7/trained";
 const BEST_MODEL: &str = "7x7/best.pt";
-const MAX_EXAMPLES: usize = 50000;
+const MAX_EXAMPLES: usize = 500000;
 const FOR_TRAIN: bool = true;
 
 fn self_play_sim(
@@ -402,18 +402,18 @@ impl Coach {
     let mcts_sim_num = 2;
     for i in 0..10000 {
       println!("self playing... round:{}", i);
-      let mut mcts_sim_num = 6 + i / 5;
+      let mut mcts_sim_num = 50 + i / 5;
       if mcts_sim_num > 256 {
-        mcts_sim_num = 256
+        mcts_sim_num = 256;
       }
       let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
       self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 8, 6, &mut root_mcts);
 
       println!("start training... round:{}", i);
-      let lr = 3e-5;
-      let mut mcts_sim_num: u32 = 4 + i / 10;
+      let lr = 1e-4;
+      let mut mcts_sim_num: u32 = 20 + i / 10;
       if mcts_sim_num > 50 {
-        mcts_sim_num = 50
+        mcts_sim_num = 50;
       }
       let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);
       train_net(&mut tn_ex, board_size, action_size, num_channels, lr);

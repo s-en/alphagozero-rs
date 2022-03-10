@@ -96,12 +96,12 @@ fn main() {
   // // board.action(19, Turn::White);
   // // board.action(23, Turn::White);
   // // board.action(24, Turn::White);
-  // board.turn = Turn::Black;
+  // board.turn = Turn::White;
   // println!("{:}", &board);
   // let predict32 = |inputs: Vec<Vec<f32>>| {
   //   NNet::predict32(&net, inputs)
   // };
-  // let temp = 2.0;
+  // let temp = 1.0;
   // let probs = mcts.get_action_prob(&board, temp, &predict32, false, true, false, 1);
   // println!("probs {:?}", probs);
 

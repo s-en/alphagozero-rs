@@ -84,7 +84,7 @@ impl NNet {
     net.predict_tensor(b)
   }
   pub fn predict_tensor(&self, board: Tensor) -> (Vec<f32>, f32) {
-    let b = board.view([15, self.board_size, self.board_size]).totype(Kind::Float);
+    let b = board.view([12, self.board_size, self.board_size]).totype(Kind::Float);
     let mut pi: Tensor = Tensor::zeros(&[1, self.action_size], (Kind::Float, self.vs.device()));
     let mut v: Tensor = Tensor::zeros(&[1, 1], (Kind::Float, self.vs.device()));
     if let Some(model) = &self.model {
@@ -117,7 +117,7 @@ impl NNet {
   pub fn predict32_tensor(&self, board: Tensor, num: i64) -> Vec<(Vec<f32>, f32)> {
     let mut res = Vec::new();
     tch::no_grad(|| {
-      let b = board.view([num, 15, self.board_size, self.board_size]);
+      let b = board.view([num, 12, self.board_size, self.board_size]);
       let mut pi: Tensor = Tensor::zeros(&[num, self.action_size], (Kind::Float, self.vs.device()));
       let mut v: Tensor = Tensor::zeros(&[num, 1], (Kind::Float, self.vs.device()));
       if let Some(model) = &self.model {

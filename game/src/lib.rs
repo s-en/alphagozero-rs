@@ -51,7 +51,7 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
     let mut asize:usize = 0;
     let mut input = Vec::new();
     for row in inputs {
-      asize = row.len() / 15 + 1;
+      asize = row.len() / 12 + 1;
       input.extend(row);
     }
     let jsoutput = jspredict(Float32Array::from(&input[..]));
@@ -62,12 +62,12 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
   let self_play = false;
   let prioritize_kill = false;
   let mut komi = -1;
-  if board_size == 7 {
-    temp = 0.5;
-    // if board.black.count_ones() < 4 {
-    //   temp = 1.0;
-    // }
-  }
+  // if board_size == 7 {
+  //   temp = 0.5;
+  //   // if board.black.count_ones() < 4 {
+  //   //   temp = 1.0;
+  //   // }
+  // }
   let mut pi = mcts.get_action_prob(&board, temp, &predict, prioritize_kill, for_train, self_play, komi);
   let best_action = max_idx(&pi);
   let s = board.calc_hash();
@@ -92,7 +92,7 @@ pub fn playout_killed(board_size: Number, stones: Float32Array, turn: Number, pa
     let mut asize:usize = 0;
     let mut input = Vec::new();
     for row in inputs {
-      asize = row.len() / 15 + 1;
+      asize = row.len() / 12 + 1;
       input.extend(row);
     }
     let jsoutput = jspredict(Float32Array::from(&input[..]));
