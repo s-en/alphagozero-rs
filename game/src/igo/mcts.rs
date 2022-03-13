@@ -171,7 +171,7 @@ impl MCTS {
       let mut inputs: Vec<Vec<f32>> = Vec::new();
       inputs.push(c_board.input());
       let valids;
-      if for_train {
+      if for_train || prioritize_kill {
         valids = c_board.vec_valid_moves_for_train(c_board.turn);
       } else {
         valids = c_board.vec_valid_moves(c_board.turn);
