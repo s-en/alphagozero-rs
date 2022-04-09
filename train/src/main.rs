@@ -69,6 +69,201 @@ fn main() {
   };
   coach.learn();
 
+  // vの確認
+  // let board_size: i64 = 7;
+  // let action_size: i64 = 50;
+  // let num_channels: i64 = 32;
+  // let mut net = NNet::new(board_size, action_size, num_channels);
+  // net.load_trainable("7x7/best.pt");
+  // //let mut examples = Vec::new();
+  // let predict32 = |inputs: Vec<Vec<f32>>| {
+  //   NNet::predict32(&net, inputs)
+  // };
+  // let mut board = Board::new(BoardSize::S7);
+  // let tb = Stones::new64(0b0010000_1111111_1111111_1111111_0000000_0000000_0000000);
+  // let tw = Stones::new64(0b0000000_0000000_0000000_0100000_1110111_1101111_1111111);
+  // board.set_stones(Turn::Black, tb);
+  // board.set_stones(Turn::White, tw);
+  // board.turn = Turn::Black;
+  // println!("{:}", board);
+  // let pi = NNet::predict(&net, board.input());
+  // println!("pi {:?}", pi);
+  // return;
+
+  let board_size: i64 = 7;
+  let action_size: i64 = 50;
+  let num_channels: i64 = 32;
+  let mut net = NNet::new(board_size, action_size, num_channels);
+  net.load_trainable("7x7/best.pt");
+  //let mut examples = Vec::new();
+  let predict32 = |inputs: Vec<Vec<f32>>| {
+    NNet::predict32(&net, inputs)
+  };
+  let mut board = Board::new(BoardSize::S7);
+  // let tb = Stones::new64(0b0000000_0000000_0000000_0000000_0000000_0000000_0000000);
+  // let tw = Stones::new64(0b1111111_1101111_1000111_1101111_1111111_1111111_1111111);
+  // board.set_stones(Turn::Black, tb);
+  // board.set_stones(Turn::White, tw);
+  // board.turn = Turn::Black;
+  board.action(24, board.turn);
+  // board.action(3, board.turn);
+  // board.action(6, board.turn);
+  //board.action(49, board.turn);
+  let pi = NNet::predict(&net, board.input());
+  // let pi = NNet::predict32(&net, vec![vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49]]);
+  println!("pi {:?}", pi);
+  //let valids = board.vec_valid_moves_for_train(board.turn);
+  println!("{:}", board);
+  //println!("{:?}", valids);
+
+  let mut mcts = MCTS::new(200, 1.0);
+  let mut probs: Vec<f32> = mcts.get_action_prob(&board, 0.2, &predict32, false, false, false, 0);//board.vec_valid_moves(board.turn).iter().map(|&x| x as i32 as f32).collect();
+  println!("probs {:?}", probs);
+
+  // board.action(49, Turn::Black);
+  // board.action(48, Turn::White);
+  // println!("{:}", board);
+  // board.turn = Turn::White;
+  // let mut mcts = MCTS::new(50, 1.0);
+  // let mut probs: Vec<f32> = mcts.get_action_prob(&board, 1.0, &predict32, false, false, false, 0);
+  // println!("probs {:?}", probs);
+  // // for i in 0..1000 {
+  // //   let mut board = Board::new(BoardSize::S5);
+  // //   if i%2 == 0 {
+  // //     let mut pi = vec![0.0; 26];
+  // //     pi[1] = 1.0;
+  // //     let ex = Example {
+  // //       board: board.input(),
+  // //       pi: pi,
+  // //       v: 1.0
+  // //     };
+  // //     examples.push(ex);
+  // //   } else {
+  // //     let mut pi = vec![0.0; 26];
+  // //     pi[2] = 1.0;
+  // //     board.turn = Turn::White;
+  // //     let ex = Example {
+  // //       board: board.input(),
+  // //       pi: pi,
+  // //       v: -1.0
+  // //     };
+  // //     examples.push(ex);
+  // //   }
+  // // }
+  // let board_size: i64 = 7;
+  // let action_size: i64 = 50;
+  // let num_channels: i64 = 32;
+  // let mut net = NNet::new(board_size, action_size, num_channels);
+  // net.load_trainable("7x7/dualnet7x7.pt");
+  // let predict32 = |inputs: Vec<Vec<f32>>| {
+  //   NNet::predict32(&net, inputs)
+  // };
+  // //let mut examples = Vec::new();
+  // for i in 0..1 {
+  //   let mut board = Board::new(BoardSize::S7);
+  //   let tb = Stones::new64(0b0000000_0000000_0000000_0000010_0000011_0000010_0000010);
+  //   let tw = Stones::new64(0b1011111_1111111_1111111_1111101_1111100_1111101_1111100);
+  //   board.set_stones(Turn::Black, tb);
+  //   board.set_stones(Turn::White, tw);
+  //   println!("{:}", board);
+  //   let mut result = 0;//board.game_ended(true, 0);
+  //   let mut mcts = MCTS::new(50, 1.0);
+  //   let mut probs: Vec<f32> = mcts.get_action_prob(&board, 0.2, &predict32, false, false, false, 0);//board.vec_valid_moves(board.turn).iter().map(|&x| x as i32 as f32).collect();
+  //   println!("probs {:?}", probs);
+  // }
+  //   let mut cnt = 0;
+  //   while result == 0 {
+  //     let mut probs: Vec<f32> = mcts.get_action_prob(&board, 1.0, &predict32, false, false, false, 0);//board.vec_valid_moves(board.turn).iter().map(|&x| x as i32 as f32).collect();
+  //     println!("probs {:?}", probs);
+  //     // 次の手を選ぶ
+  //     // let mut probs = vec![0.0; 26];
+  //     // probs[0] = 0.1;
+  //     // probs[2] = 0.1;
+  //     // probs[25] = 0.8;
+  //     let rng = &mut rand::thread_rng();
+  //     let dist = WeightedIndex::new(&probs).unwrap();
+  //     let mut a = dist.sample(rng) as u32;
+  //     //let mut aprob: Vec<f32> = vec![0.0; 26];
+  //     cnt += 1;
+  //     // if cnt >= 5 {
+  //     //   a = 0;
+  //     //   probs[a as usize] = 1.0;
+  //     //   //println!("{:?}", probs);
+  //     // }
+  //     //println!("{:?}", aprob);
+  //     //println!("{:?}", &probs);
+  //     let turn = board.turn;
+  //     // let ex = Example {
+  //     //   board: board.input(),
+  //     //   pi: &probs,
+  //     //   v: 0.0
+  //     // };
+  //     //examples.push(ex);
+  //     let sym = board.symmetries(probs);
+
+  //     board.action(a, board.turn);
+  //     //println!("{}", board);
+  //     // println!("{:?}", turn as i32);
+  //     //println!("{:?}", a);
+  //     // 12で勝ち
+  //     // if a == 12 {
+  //     //   result = turn as i32;
+  //     // }
+  //     // パスしたら負け
+  //     if a == 25 {
+  //       result = turn as i32 * -1;
+  //       for (b, p) in sym {
+  //         //println!("{:?}", b);
+  //         let ex = Example {
+  //           board: b,
+  //           pi: p,
+  //           v: 0.0
+  //         };
+  //         examples.push(ex);
+  //       }
+  //     }
+  //     //result = board.game_ended(true, 0);
+  //   }
+  //   println!("{} {}", result, board.get_kifu_sgf());
+  //   let v = result as i32;
+  //   for mut ex in &mut examples {
+  //     // v: 1.0 black won
+  //     // v: -1.0 white won
+  //       ex.v = v as f32;
+  //   }
+  //   //println!("{:}", board);
+  // }
+  //println!("{:?}", &examples[examples.len()-5]);
+  //println!("{:?}", &examples[examples.len()-1]);
+  // for ex in &examples {
+  //   println!("{:?}", ex);
+  // }
+  // println!("examples {:}", examples.len());
+  // // 学習
+  // let lr = 1e-5;
+  // let ex = examples.iter().map(|x| x).collect();
+  // let _ = net.train(ex, lr);
+
+  // // let pi = NNet::predict(&net, vec![1.0; 12*25]);
+  // // println!("after {:?}", pi);
+  // // let pi = NNet::predict(&net, vec![0.0; 12*25]);
+  // // println!("after {:?}", pi);
+  // let mut board = Board::new(BoardSize::S5);
+  // let pi = NNet::predict(&net, board.input());
+  // println!("after {:?}", pi);
+  // //println!("after_center {:?}", pi.0[12]);
+  // //println!("input {:?}", board.input());
+
+  // //board.turn = Turn::White;
+  // board.action(2, board.turn);
+  // // // board.action(8, board.turn);
+  // // // board.action(3, board.turn);
+  // // // board.action(9, board.turn);
+  // let pi = NNet::predict(&net, board.input());
+  // println!("after {:?}", pi);
+  // // println!("after_center {:?}", pi.0[12]);
+  // // //println!("input {:?}", board.input());
+
   // let board_size: i64 = 5;
   // let action_size: i64 = 26;
   // let num_channels: i64 = 32;

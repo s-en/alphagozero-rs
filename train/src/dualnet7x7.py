@@ -113,7 +113,7 @@ class DualNet(nn.Module):
 if __name__ == '__main__':
     device = torch.device('cuda:0')
     bsize = 7
-    model = DualNet(bsize, bsize*bsize+1, 32)
+    model = DualNet(bsize, bsize*bsize+1, 64)
     model = model.to(device)
     dummy = torch.rand([1, 12, bsize, bsize]).to(device)
     traced_net = torch.jit.trace(model, dummy)

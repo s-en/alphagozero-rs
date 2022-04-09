@@ -2,7 +2,7 @@ pub mod igo;
 pub use igo::*;
 extern crate console_error_panic_hook;
 use std::panic;
-use js_sys::{Float32Array, Number, Boolean};
+use js_sys::{Float32Array, Number, Boolean, Promise};
 use std::cmp::Ordering;
 
 extern crate wasm_bindgen;
@@ -11,7 +11,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(module="/src/jspredict.js")]
 extern {
   type JSBoard;
-  fn jspredict(input: Float32Array) -> Float32Array;
+  fn jspredict(input: Float32Array) -> Promise;
 }
 
 fn get_board(board_size: &Number, stones: &Float32Array, turn: &Number, pass_cnt: &Number) -> Board {
@@ -42,11 +42,11 @@ pub fn max_idx(vals: &Vec<f32>) -> usize {
 }
 
 #[wasm_bindgen]
-pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, sim_num: u32) -> Float32Array {
+pub async fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, sim_num: u32) -> Float32Array {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   let board = get_board(&board_size, &stones, &turn, &pass_cnt);
   let mut mcts = MCTS::new(sim_num, 1.0); // reset search tree
-  fn predict(inputs: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
+  async fn predict(inputs: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
     let len = inputs.len();
     let mut asize:usize = 0;
     let mut input = Vec::new();
@@ -54,7 +54,8 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
       asize = row.len() / 12 + 1;
       input.extend(row);
     }
-    let jsoutput = jspredict(Float32Array::from(&input[..]));
+    let promise = jspredict(Float32Array::from(&input[..]));
+    let jsoutput:Float32Array = wasm_bindgen_futures::JsFuture::from(promise).await.unwrap().into();
     rspredict(jsoutput, len, asize)
   }
   let mut temp = 0.2;
@@ -68,7 +69,8 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
   //   //   temp = 1.0;
   //   // }
   // }
-  let mut pi = mcts.get_action_prob(&board, temp, &predict, prioritize_kill, for_train, self_play, komi);
+  let mut pi = mcts.get_action_prob_async(&board, temp, &predict, prioritize_kill, for_train, self_play, komi).await;
+  //panic!("pi {:?}", pi);
   let best_action = max_idx(&pi);
   let s = board.calc_hash();
   let sa = (s, best_action);
@@ -82,12 +84,12 @@ pub fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Num
 }
 
 #[wasm_bindgen]
-pub fn playout_killed(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, max_play: Number) -> Float32Array {
+pub async fn playout_killed(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, max_play: Number) -> Float32Array {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   let mut board = get_board(&board_size, &stones, &turn, &pass_cnt);
   let sim_num = 3;
   let mut mcts = MCTS::new(sim_num, 1.0); // reset search tree
-  fn predict(inputs: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
+  async fn predict(inputs: Vec<Vec<f32>>) -> Vec<(Vec<f32>, f32)> {
     let len = inputs.len();
     let mut asize:usize = 0;
     let mut input = Vec::new();
@@ -95,7 +97,8 @@ pub fn playout_killed(board_size: Number, stones: Float32Array, turn: Number, pa
       asize = row.len() / 12 + 1;
       input.extend(row);
     }
-    let jsoutput = jspredict(Float32Array::from(&input[..]));
+    let promise = jspredict(Float32Array::from(&input[..]));
+    let jsoutput:Float32Array = wasm_bindgen_futures::JsFuture::from(promise).await.unwrap().into();
     rspredict(jsoutput, len, asize)
   }
   let temp = 0.0;
@@ -124,7 +127,7 @@ pub fn playout_killed(board_size: Number, stones: Float32Array, turn: Number, pa
   while board.game_ended(false, komi) == 0 && play_cnt < max_play.value_of() as u32 {
     let prev_white = board.white;
     let prev_black = board.black;
-    let pi = mcts.get_action_prob(&board, temp, &predict, prioritize_kill, for_train, self_play, 0);
+    let pi = mcts.get_action_prob_async(&board, temp, &predict, prioritize_kill, for_train, self_play, 0).await;
     let action = max_idx(&pi) as u32;
     board.action(action, board.turn);
     play_cnt += 1;

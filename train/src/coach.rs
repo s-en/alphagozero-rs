@@ -17,8 +17,8 @@ const KOMI: i32 = 0;
 const BOARD_SIZE: BoardSize = BoardSize::S7;
 const TRAINED_MODEL: &str = "7x7/trained";
 const BEST_MODEL: &str = "7x7/best.pt";
-const MAX_EXAMPLES: usize = 500000;
-const FOR_TRAIN: bool = true;
+const MAX_EXAMPLES: usize = 1000000;
+const FOR_TRAIN: bool = false;
 
 fn self_play_sim(
   arc_examples: &mut Arc<Mutex<Vec<Example>>>, 
@@ -71,8 +71,8 @@ fn self_play(board_size: i64,
   };
   let mut tnet = NNet::new(board_size, action_size, num_channels);
   tnet.load(BEST_MODEL);
+  let mut each_mcts = MCTS::duplicate(mcts);
   for i in 0..num_eps {
-    let mut each_mcts = MCTS::duplicate(mcts);
     let ep_results = execute_episode(rng, &mut each_mcts, &tnet, i);
     //println!("before await");
     let (examples, r) = ep_results;
@@ -84,6 +84,7 @@ fn self_play(board_size: i64,
         white_win_history.values.push_back(ex);
       }
     }
+    each_mcts = MCTS::duplicate(&each_mcts);
   }
   // 白黒で勝敗数を揃える
   // let bw_min = cmp::min(cmp::min(black_win_history.values.len(), white_win_history.values.len()), max_history_queue);
@@ -117,36 +118,45 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
   let predict32 = |inputs: Vec<Vec<f32>>| {
     NNet::predict32(net, inputs)
   };
-  let for_train = FOR_TRAIN;//eps_cnt % 3 != 0;
+  let for_train = FOR_TRAIN; //eps_cnt % 3 != 0;
   let prioritize_kill = false;
   let self_play = false;
   let mut tengen = false;
+  let stemp = mcts.sim_num;
   loop {
     episode_step += 1;
     let mut temp = 1.0;
+    // if eps_cnt%2 == episode_step%2 {
+    //   // 片側をぼこぼこにする
+    //   mcts.sim_num = stemp * 10;
+    // } else {
+    //   mcts.sim_num = stemp;
+    // }
     if episode_step == 1 {
-      temp = 5.0;
-    } 
+      temp = 30.0;
+    }
+    // if episode_step == 1 {
+    //   temp = 5.0;
+    // }
     // else if episode_step < temp_threshold {
     //   temp = 1.0;
     // }
     // println!("step {:?} turn {:?}", board.step, board.turn as i32);
     // let mstart = Instant::now();
     let turn = board.turn;
-    let mut pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
+    let mut pi: Vec<f32>;
+    // if episode_step == 1 && eps_cnt % 3 != 0 {
+    //   // 初手天元縛り
+    //   pi = vec![0.0; 50];
+    //   pi[24] = 1.0;
+    // } else {
+      pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
+    //}
+    //let mut pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
     // let mend = mstart.elapsed();
     // println!("get_action_prob {}.{:03}秒", mend.as_secs(), mend.subsec_nanos() / 1_000_000);
 
     let dist = WeightedIndex::new(&pi).unwrap();
-    let sym = board.symmetries(pi);
-    for (b, p) in sym {
-      let ex = Example {
-        board: b,
-        pi: p,
-        v: 0.0
-      };
-      examples.push(ex);
-    }
     let mut action = dist.sample(rng) as u32;
 
     // 勝率が低いときはパスする
@@ -161,13 +171,28 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
       //     action = bs * bs;
       //   }
       // }
+    // if action == 49 {
+    //   // pass
+    //   println!("probs {:?}", pi);
+    // }
 
     board.action(action, board.turn);
+
+    let sym = board.symmetries(pi);
+    for (b, p) in sym {
+      let ex = Example {
+        board: b,
+        pi: p,
+        v: 0.0
+      };
+      examples.push(ex);
+    }
 
     let r = board.game_ended(false, KOMI);
 
     if r != 0 {
-      //println!("{} {}", r, board.get_kifu_sgf());
+      //print!("{} ", r);
+      println!("{} {}", r, board.get_kifu_sgf());
       // std::process::exit(0x0100);
       let mut v = r as i32;
       for mut ex in &mut examples {
@@ -175,6 +200,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
         // v: -1.0 white won
          ex.v = v as f32;
       }
+      mcts.sim_num = stemp;
       // println!("{:?}", examples);
       // let end = start.elapsed();
       // println!("execute_episode {}.{:03}秒", end.as_secs(), end.subsec_nanos() / 1_000_000);
@@ -319,8 +345,9 @@ pub fn play_games(
   let mut two_won = 0;
   let mut draws = 0;
 
-  let temp = 0.5;
-  let each_mcts = MCTS::duplicate(mcts);
+  let temp = 0.1;
+  let mut pmcts = MCTS::duplicate(&mcts);
+  let mut nmcts = MCTS::duplicate(&mcts);
   // white cpu
   let mut a = 0;
   let mut b = 0;
@@ -331,8 +358,8 @@ pub fn play_games(
   pnet.load(BEST_MODEL);
   
   for i in 0..num {
-    let mut pmcts = MCTS::duplicate(&each_mcts);
-    let mut nmcts = MCTS::duplicate(&each_mcts);
+    pmcts = MCTS::duplicate(&pmcts);
+    nmcts = MCTS::duplicate(&nmcts);
     let mut player1 = player(&mut pmcts, &pnet, temp);
     let mut player2 = player(&mut nmcts, &net, temp);
     let game_result = play_game(&mut player1, &mut player2, i);
@@ -351,7 +378,8 @@ pub fn play_games(
   two_won += b;
   draws += c;
 
-  let each_mcts = MCTS::duplicate(mcts);
+  let mut pmcts = MCTS::duplicate(&mcts);
+  let mut nmcts = MCTS::duplicate(&mcts);
   let mut a = 0;
   let mut b = 0;
   let mut c = 0;
@@ -360,8 +388,8 @@ pub fn play_games(
   net.load(String::from(TRAINED_MODEL) + &process::id().to_string() + ".pt");
   pnet.load(BEST_MODEL);
   for i in 0..num {
-    let mut pmcts = MCTS::duplicate(&each_mcts);
-    let mut nmcts = MCTS::duplicate(&each_mcts);
+    pmcts = MCTS::duplicate(&pmcts);
+    nmcts = MCTS::duplicate(&nmcts);
     let mut player1 = player(&mut pmcts, &pnet, temp);
     let mut player2 = player(&mut nmcts, &net, temp);
     let game_result = play_game(&mut player2, &mut player1, i);
@@ -370,21 +398,12 @@ pub fn play_games(
       1 => b += 1,
       _ => c += 1
     };
-    if one_won + a > num * 2 * 2 / 3 {
-      // skip
-      return (80, two_won, draws)
-    }
+    // if one_won + a > num * 2 * 2 / 3 {
+    //   // skip
+    //   return (80, two_won, draws)
+    // }
   }
   println!("Arena Results BLACK CPU WIN {:?}", b);
-  // ほとんど黒勝ちなら白の勝ちを増やす
-  if b == 39 {
-    one_won -= two_won;
-    two_won *= 2;
-  }
-  if b == 40 {
-    one_won -= two_won*2;
-    two_won *= 3;
-  }
   one_won += a;
   two_won += b;
   draws += c;
@@ -402,18 +421,18 @@ impl Coach {
     let mcts_sim_num = 2;
     for i in 0..10000 {
       println!("self playing... round:{}", i);
-      let mut mcts_sim_num = 50 + i / 5;
-      if mcts_sim_num > 256 {
-        mcts_sim_num = 256;
+      let mut mcts_sim_num = 200 + i*10;
+      if mcts_sim_num > 912 {
+        mcts_sim_num = 912;
       }
       let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
-      self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 8, 6, &mut root_mcts);
+      self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 256, 2, &mut root_mcts);
 
       println!("start training... round:{}", i);
       let lr = 1e-4;
-      let mut mcts_sim_num: u32 = 20 + i / 10;
-      if mcts_sim_num > 50 {
-        mcts_sim_num = 50;
+      let mut mcts_sim_num: u32 = 200 + i*5;
+      if mcts_sim_num > 300 {
+        mcts_sim_num = 300;
       }
       let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);
       train_net(&mut tn_ex, board_size, action_size, num_channels, lr);
