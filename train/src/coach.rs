@@ -192,7 +192,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
 
     if r != 0 {
       //print!("{} ", r);
-      println!("{} {}", r, board.get_kifu_sgf());
+      //println!("{} {}", r, board.get_kifu_sgf());
       // std::process::exit(0x0100);
       let mut v = r as i32;
       for mut ex in &mut examples {
@@ -421,16 +421,16 @@ impl Coach {
     let mcts_sim_num = 2;
     for i in 0..10000 {
       println!("self playing... round:{}", i);
-      let mut mcts_sim_num = 200 + i*10;
-      if mcts_sim_num > 912 {
-        mcts_sim_num = 912;
+      let mut mcts_sim_num = 500 + i*10;
+      if mcts_sim_num > 1400 {
+        mcts_sim_num = 1400;
       }
       let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
       self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 256, 2, &mut root_mcts);
 
       println!("start training... round:{}", i);
       let lr = 1e-4;
-      let mut mcts_sim_num: u32 = 200 + i*5;
+      let mut mcts_sim_num: u32 = 300 + i*5;
       if mcts_sim_num > 300 {
         mcts_sim_num = 300;
       }
