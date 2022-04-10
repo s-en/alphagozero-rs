@@ -94,7 +94,7 @@ fn main() {
   let action_size: i64 = 50;
   let num_channels: i64 = 32;
   let mut net = NNet::new(board_size, action_size, num_channels);
-  net.load_trainable("7x7/best.pt");
+  net.load_trainable("7x7/temptest.pt");
   //let mut examples = Vec::new();
   let predict32 = |inputs: Vec<Vec<f32>>| {
     NNet::predict32(&net, inputs)
@@ -102,10 +102,12 @@ fn main() {
   let mut board = Board::new(BoardSize::S7);
   // let tb = Stones::new64(0b0000000_0000000_0000000_0000000_0000000_0000000_0000000);
   // let tw = Stones::new64(0b1111111_1101111_1000111_1101111_1111111_1111111_1111111);
-  // board.set_stones(Turn::Black, tb);
-  // board.set_stones(Turn::White, tw);
-  // board.turn = Turn::Black;
-  board.action(24, board.turn);
+  let tb = Stones::new64(0b0000000_1000000_1100000_0111000_0100111_0000101_0001110);
+  let tw = Stones::new64(0b1100000_0110000_0011111_0000100_0011000_0101000_0000000);
+  board.set_stones(Turn::Black, tb);
+  board.set_stones(Turn::White, tw);
+  board.turn = Turn::White;
+  //board.action(24, board.turn);
   // board.action(3, board.turn);
   // board.action(6, board.turn);
   //board.action(49, board.turn);
@@ -119,6 +121,7 @@ fn main() {
   let mut mcts = MCTS::new(200, 1.0);
   let mut probs: Vec<f32> = mcts.get_action_prob(&board, 0.2, &predict32, false, false, false, 0);//board.vec_valid_moves(board.turn).iter().map(|&x| x as i32 as f32).collect();
   println!("probs {:?}", probs);
+  println!("probs11 {:?}", probs[11]);
 
   // board.action(49, Turn::Black);
   // board.action(48, Turn::White);
