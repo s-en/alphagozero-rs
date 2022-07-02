@@ -5,9 +5,7 @@ use std::collections::VecDeque;
 use std::thread;
 use std::sync::mpsc;
 use std::sync::{Mutex, Arc};
-use std::time::Instant;
-use std::cmp;
-use std::collections::HashMap;
+use std::time;
 use std::cmp::Ordering;
 use std::process;
 
@@ -16,8 +14,8 @@ extern crate savefile;
 const KOMI: i32 = 0;
 const BOARD_SIZE: BoardSize = BoardSize::S7;
 const TRAINED_MODEL: &str = "7x7/trained";
-const BEST_MODEL: &str = "7x7/best.pt";
-const MAX_EXAMPLES: usize = 1000000;
+const BEST_MODEL: &str = "7x7/dualnet7x7_4conv_dep16.pt";
+const MAX_EXAMPLES: usize = 2000000;
 const FOR_TRAIN: bool = false;
 
 fn self_play_sim(
@@ -30,10 +28,12 @@ fn self_play_sim(
   mcts: &mut MCTS) {
   let mut rng = rand::thread_rng();
   let (tx, rx) = mpsc::channel();
-  for _ in 0..sim_num {
+  for i in 0..sim_num {
     let tx1 = mpsc::Sender::clone(&tx);
     let mut each_mcts = MCTS::duplicate(&mcts);
     thread::spawn(move || {
+      thread::sleep(time::Duration::from_millis(i as u64 * 500));
+      // println!("self_play_sim {:?}", i);
       let examples = self_play(board_size, action_size, num_channels, num_eps, &mut each_mcts);
       tx1.send(examples).unwrap();
     });
@@ -113,51 +113,52 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
   let mut examples = Vec::new();
   let mut board = Board::new(BOARD_SIZE);
   let mut episode_step = 0;
-  let temp_threshold = 5;
-  let mut kcnt = 0;
   let predict32 = |inputs: Vec<Vec<f32>>| {
     NNet::predict32(net, inputs)
   };
-  let for_train = FOR_TRAIN; //eps_cnt % 3 != 0;
+  let for_train = eps_cnt%3 != 0;//FOR_TRAIN;
   let prioritize_kill = false;
   let self_play = false;
-  let mut tengen = false;
   let stemp = mcts.sim_num;
   loop {
     episode_step += 1;
     let mut temp = 1.0;
     // if eps_cnt%2 == episode_step%2 {
     //   // 片側をぼこぼこにする
-    //   mcts.sim_num = stemp * 10;
+    //   mcts.sim_num = stemp * 5;
     // } else {
     //   mcts.sim_num = stemp;
     // }
+    let mstep = BOARD_SIZE as i32 * 3;
     if episode_step == 1 {
-      temp = 30.0;
+      temp = 1.0;
+    } else if episode_step <= mstep {
+      temp = (1.0 - (episode_step as f32 / mstep as f32)) * 0.3 + 0.1;
+    } else {
+      temp = 0.1;
     }
-    // if episode_step == 1 {
-    //   temp = 5.0;
-    // }
-    // else if episode_step < temp_threshold {
-    //   temp = 1.0;
-    // }
     // println!("step {:?} turn {:?}", board.step, board.turn as i32);
     // let mstart = Instant::now();
     let turn = board.turn;
     let mut pi: Vec<f32>;
-    // if episode_step == 1 && eps_cnt % 3 != 0 {
-    //   // 初手天元縛り
-    //   pi = vec![0.0; 50];
-    //   pi[24] = 1.0;
-    // } else {
+    if episode_step == 1 && eps_cnt % 1 == 0 {
+      // 初手天元縛り
+      pi = vec![0.0; 50];
+      pi[24] = 1.0;
+    } else {
       pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
-    //}
+    }
+
     //let mut pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
     // let mend = mstart.elapsed();
     // println!("get_action_prob {}.{:03}秒", mend.as_secs(), mend.subsec_nanos() / 1_000_000);
 
     let dist = WeightedIndex::new(&pi).unwrap();
     let mut action = dist.sample(rng) as u32;
+    // if action == 49 {
+    //   println!("{}: {}", eps_cnt, board.get_kifu_sgf());
+    //   println!("{:?}", board.input());
+    // }
 
     // 勝率が低いときはパスする
       // let s = board.calc_hash();
@@ -178,6 +179,11 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
 
     board.action(action, board.turn);
 
+    let r = board.game_ended(false, KOMI);
+    if board.pass_cnt >= 2 {
+      board.pass_cnt = 1;
+    }
+
     let sym = board.symmetries(pi);
     for (b, p) in sym {
       let ex = Example {
@@ -188,12 +194,14 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
       examples.push(ex);
     }
 
-    let r = board.game_ended(false, KOMI);
-
     if r != 0 {
       //print!("{} ", r);
-      //println!("{} {}", r, board.get_kifu_sgf());
+      // println!("{} {}", r, board.get_kifu_sgf());
       // std::process::exit(0x0100);
+      // if eps_cnt == 0 {
+      //   println!("{}: {} {}", eps_cnt, r, board.get_kifu_sgf());
+      //   // println!("{:?}", board.input());
+      // }
       let mut v = r as i32;
       for mut ex in &mut examples {
         // v: 1.0 black won
@@ -208,9 +216,143 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
     }
   }
 }
+fn nakade_data() -> Vec<Example> {
+  let mut examples = Vec::new();
+  let mut add_example = |board: &Board, pi:Vec<f32>, v: f32| {
+    // println!("---- v: {:?} turn: {:?} ----", v, board.turn as i32);
+    // println!("pi {:?}", pi);
+    // println!("{:}", board);
+    let sym = board.symmetries(pi);
+    for (b, p) in sym {
+      let ex = Example {
+        board: b,
+        pi: p,
+        v: v
+      };
+      examples.push(ex);
+    }
+  };
+  // ３目中手
+  for teban in [-1, 1] {
+    for color in [-1, 1] {
+      for x in 0..3 {
+        for y in 0..4 {
+          let mut board = Board::new(BoardSize::S7);
+          let mut s1: u64 = 0b1111111_1111111_1111111_1111111_1111111_1111111_1111111;
+          s1 = s1 ^ (1 << (x+y*7));
+          s1 = s1 ^ (1 << (x+1+y*7));
+          s1 = s1 ^ (1 << (x+2+y*7));
+          let tb;
+          let tw;
+          if color == -1 {
+            tb = Stones::new64(0);
+            tw = Stones::new64(s1);
+          } else {
+            tb = Stones::new64(s1);
+            tw = Stones::new64(0);
+          }
+          board.set_stones(Turn::Black, tb);
+          board.set_stones(Turn::White, tw);
+          for _ in 0..6 {
+            board.action(49, board.turn);
+          }
+          board.pass_cnt = 0;
+          board.turn = if teban == -1 {Turn::White} else {Turn::Black};
+          //println!("{:}", board);
+          let action = x + 1 + y*7;
+          //println!("action {:?}", action);
+          let mut pi: Vec<f32> = vec![0.0; 50];
+          pi[action] = 1.0;
+          // 手番を持ってる側が勝ち
+          add_example(&board, pi.clone(), teban as f32);
+          board.turn = if teban == -1 {Turn::Black} else {Turn::White};
+          add_example(&board, pi, 0.0);
+          board.turn = if teban == -1 {Turn::White} else {Turn::Black};
+          // 中手を打った後
+          board.action(action as u32, board.turn);
+          board.action(49, board.turn);
+          pi = vec![0.0; 50];
+          if color == teban {
+            // パスしたら勝ち
+            pi[49] = 1.0;
+            add_example(&board, pi, teban as f32);
+          } else {
+            // 両脇のどっちかに打つ
+            pi[action-1] = 0.5;
+            pi[action+1] = 0.5;
+            add_example(&board, pi, 0.0);
+          }
+          // 既に負けてるパターン
+          board.turn = if teban == -1 {Turn::Black} else {Turn::White};
+          pi = vec![0.0; 50];
+          pi[49] = 1.0; // 何をしても無駄なのでパスする
+          add_example(&board, pi, teban as f32);
+          // 残り１目になると逆転
+          board.turn = if teban == -1 {Turn::White} else {Turn::Black};
+          board.action(action as u32 - 1, board.turn);
+          pi = vec![0.0; 50];
+          pi[action+1] = 1.0;
+          add_example(&board, pi, 0.0);
+        }
+      }
+    }
+  }
+  // ４目中手
+
+  println!("examples {:?}", examples.len());
+  return examples;
+}
+fn pass_data() -> Vec<Example> {
+  let mut examples = Vec::new();
+  let mut add_example = |board: &Board, pi:Vec<f32>, v: f32| {
+    println!("---- pass: {:?} turn: {:?} = v: {:?}  ----", board.pass_cnt, board.turn as i32, v);
+    // println!("{:?}", &board.input()[49*12-1]);
+    let sym = board.symmetries(pi);
+    for (b, p) in sym {
+      let ex = Example {
+        board: b,
+        pi: p,
+        v: v
+      };
+      examples.push(ex);
+    }
+  };
+  let mut rng = rand::thread_rng(); // デフォルトの乱数生成器を初期化します
+  for t in 0..2 {
+    for p in 0..2 {
+      let mut board = Board::new(BoardSize::S7);
+      if t == 0 {
+        board.turn = Turn::White;
+      }
+      board.pass_cnt = p;
+      let mut pi = vec![0.0; 50];
+      let mut v = 0.0;
+      // xor
+      // 0 0 = 0
+      if board.pass_cnt == 0 && board.turn == Turn::White {
+        v = 0.0;
+      }
+      // 0 1 = 1
+      if board.pass_cnt == 0 && board.turn == Turn::Black {
+        v = 1.0;
+      }
+      // 1 0
+      if board.pass_cnt == 1 && board.turn == Turn::White {
+        v = 1.0;
+      }
+      // 1 1 = 0
+      if board.pass_cnt == 1 && board.turn == Turn::Black {
+        v = 0.0;
+      }
+      add_example(&board, pi, v);
+    }
+  }
+  println!("examples {:?}", examples.len());
+  return examples;
+}
 fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_size: i64, num_channels: i64, lr: f64) {
   let mut net = NNet::new(board_size, action_size, num_channels);
-  let board = Board::new(BOARD_SIZE);
+  let mut board = Board::new(BOARD_SIZE);
   net.load_trainable(BEST_MODEL);
   let pi = NNet::predict(&net, board.input());
   println!("before {:?}", pi);
@@ -228,11 +370,25 @@ fn train_net(ex_arc_mut: &mut Arc<Mutex<Vec<Example>>>, board_size: i64, action_
     }
   }
   let ex = examples.iter().map(|x| x).collect();
-  let _ = net.train(ex, lr);
+  match net.train(ex, lr) {
+    Ok(_) => {},
+    Err(e) => panic!("{:?}", e)
+  }
   net.save(String::from(TRAINED_MODEL) + &process::id().to_string() + ".pt");
 
   let pi = NNet::predict(&net, board.input());
-  println!("after {:?}", pi);
+  println!("after black pass0 1 0 = {:?}", pi.1);
+  board.turn = Turn::White;
+  let pi = NNet::predict(&net, board.input());
+  println!("after white pass0 0 0 = {:?}", pi.1);
+  board.turn = Turn::Black;
+  board.action(49, board.turn);
+  board.turn = Turn::Black;
+  let pi = NNet::predict(&net, board.input());
+  println!("after black pass1 1 1 = {:?}", pi.1);
+  board.turn = Turn::White;
+  let pi = NNet::predict(&net, board.input());
+  println!("after white pass1 0 1 = {:?}", pi.1);
 }
 fn arena(mcts_sim_num: u32, 
   board_size: i64, 
@@ -421,21 +577,109 @@ impl Coach {
     let mcts_sim_num = 2;
     for i in 0..10000 {
       println!("self playing... round:{}", i);
-      let mut mcts_sim_num = 500 + i*10;
-      if mcts_sim_num > 1400 {
-        mcts_sim_num = 1400;
-      }
+      // {
+      //   // 中手を追加
+      //   let tex = &mut *sp_ex.lock().unwrap();
+      //   tex.extend(nakade_data());
+      // }
+      // let mut mcts_sim_num = 300 + i*5;
+      // if mcts_sim_num > 1400 {
+      //   mcts_sim_num = 1400;
+      // }
+      // {
+      //   let tex = &mut *sp_ex.lock().unwrap();
+      //   for _ in 0..100 {
+      //     tex.extend(pass_data());
+      //   }
+      // }
+      let mut mcts_sim_num = 100;
       let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
-      self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 256, 2, &mut root_mcts);
+      self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 14, 64, &mut root_mcts);
 
       println!("start training... round:{}", i);
-      let lr = 1e-4;
-      let mut mcts_sim_num: u32 = 300 + i*5;
-      if mcts_sim_num > 300 {
-        mcts_sim_num = 300;
-      }
+      let lr = 5e-5;
+      // let mut mcts_sim_num: u32 = 200 + i*3;
+      // if mcts_sim_num > 300 {
+      //   mcts_sim_num = 300;
+      // }
+      let mut mcts_sim_num: u32 = 200;
       let mut train_mcts = MCTS::new(mcts_sim_num, 1.0);
       train_net(&mut tn_ex, board_size, action_size, num_channels, lr);
+
+      // let mut board = Board::new(BoardSize::S7);
+      // let tb = Stones::new64(0b0000000_0000000_0000000_0000000_0000000_0000000_0000000);
+      // let tw = Stones::new64(0b1111111_1111111_1111111_1111111_1111111_1111111_1111000);
+      // board.set_stones(Turn::Black, tb);
+      // board.set_stones(Turn::White, tw);
+      // for _ in 0..6 {
+      //   board.action(49, board.turn);
+      // }
+      // board.pass_cnt = 0;
+      // println!("{:}", board);
+      // let mut net = NNet::new(board_size, action_size, num_channels);
+      // //net.load_trainable("7x7/best2.pt");
+      // net.load_trainable(String::from(TRAINED_MODEL) + &process::id().to_string() + ".pt");
+      // board.turn = Turn::Black;
+      // let pi = NNet::predict(&net, board.input());
+      // //println!("input {:?}", board.input());
+      // println!("v {:?}", pi);
+      // board.turn = Turn::White;
+      // let pi = NNet::predict(&net, board.input());
+      // println!("v {:?}", pi);
+
+      // board.set_stones(Turn::Black, tw);
+      // board.set_stones(Turn::White, tb);
+      // for _ in 0..6 {
+      //   board.action(49, board.turn);
+      // }
+      // board.pass_cnt = 0;
+      // println!("{:}", board);
+      // board.turn = Turn::Black;
+      // let pi = NNet::predict(&net, board.input());
+      // //println!("input {:?}", board.input());
+      // println!("v {:?}", pi);
+      // board.turn = Turn::White;
+      // let pi = NNet::predict(&net, board.input());
+      // println!("v {:?}", pi);
+
+
+
+      // let mut board = Board::new(BoardSize::S7);
+      // let tb = Stones::new64(0b0000000_0000000_0000000_0000000_0000000_0000000_0000000);
+      // let tw = Stones::new64(0b1111111_1111111_1111111_1111111_1111111_1111111_1111010);
+      // board.set_stones(Turn::Black, tb);
+      // board.set_stones(Turn::White, tw);
+      // for _ in 0..6 {
+      //   board.action(49, board.turn);
+      // }
+      // board.pass_cnt = 0;
+      // println!("{:}", board);
+      // //net.load_trainable("7x7/best2.pt");
+      // board.turn = Turn::Black;
+      // let pi = NNet::predict(&net, board.input());
+      // //println!("input {:?}", board.input());
+      // println!("v {:?}", pi);
+      // board.turn = Turn::White;
+      // let pi = NNet::predict(&net, board.input());
+      // println!("v {:?}", pi);
+
+      // board.set_stones(Turn::Black, tw);
+      // board.set_stones(Turn::White, tb);
+      // for _ in 0..6 {
+      //   board.action(49, board.turn);
+      // }
+      // board.pass_cnt = 0;
+      // println!("{:}", board);
+      // board.turn = Turn::Black;
+      // let pi = NNet::predict(&net, board.input());
+      // //println!("input {:?}", board.input());
+      // println!("v {:?}", pi);
+      // board.turn = Turn::White;
+      // let pi = NNet::predict(&net, board.input());
+      // println!("v {:?}", pi);
+
+      // return;
+
       arena(mcts_sim_num, board_size, action_size, num_channels, &mut train_mcts);
     }
     println!("learning end");

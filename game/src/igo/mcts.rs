@@ -77,6 +77,12 @@ impl MCTS {
     for b in 0..batch_size {
       let s = hashs[b];
       let (ps, v) = &predicts[b];
+      // ----------------------
+      // パスは確率を下げる
+      // let mut ps = ps2.clone();
+      // let pass_idx = ps.len()-1;
+      // ps[pass_idx] = ps[pass_idx] * 0.1;
+      // ----------------------
       let valids = &self.vs[&s];
       let mut masked_valids: Vec<f32> = valids.iter().enumerate().map(|(i, x)| *x as i32 as f32 * ps[i] + 1e-20).collect();
       let sum_ps_s: f32 = masked_valids.iter().sum();
@@ -163,7 +169,7 @@ impl MCTS {
     }
     // println!("wsa: {:?}", self.wsa);
     //println!("nsa: {:?}", self.nsa);
-    //println!("counts: {:?}", counts);
+    // println!("counts: {:?}", counts);
     //println!("qsa: {:?}", self.qsa);
     if temp == 0.0 {
       let mut probs = vec![0.0; amax];
@@ -176,7 +182,7 @@ impl MCTS {
     let probs: Vec<f32>;
     if counts_sum == 0.0 {
       // avoid devide by zero
-      probs = c_board.vec_valid_moves(root_turn).iter().map(|&x| x as i32 as f32).collect(); // random move
+      probs = c_board.vec_valid_moves_for_cpu(root_turn).iter().map(|&x| x as i32 as f32).collect(); // random move
     } else {
       probs = counts.iter().map(|x| x / counts_sum).collect();
     }
@@ -212,6 +218,12 @@ impl MCTS {
     for b in 0..batch_size {
       let s = hashs[b];
       let (ps, v) = &predicts[b];
+      // ----------------------
+      // パスは確率を下げる
+      // let mut ps = ps2.clone();
+      // let pass_idx = ps.len()-1;
+      // ps[pass_idx] = ps[pass_idx] * 0.1;
+      // ----------------------
       let valids = &self.vs[&s];
       let mut masked_valids: Vec<f32> = valids.iter().enumerate().map(|(i, x)| *x as i32 as f32 * ps[i] + 1e-20).collect();
       let sum_ps_s: f32 = masked_valids.iter().sum();
@@ -313,7 +325,7 @@ impl MCTS {
     let probs: Vec<f32>;
     if counts_sum == 0.0 {
       // avoid devide by zero
-      probs = c_board.vec_valid_moves(root_turn).iter().map(|&x| x as i32 as f32).collect(); // random move
+      probs = c_board.vec_valid_moves_for_cpu(root_turn).iter().map(|&x| x as i32 as f32).collect(); // random move
     } else {
       probs = counts.iter().map(|x| x / counts_sum).collect();
     }
@@ -325,14 +337,11 @@ impl MCTS {
     let s = c_board.calc_hash();
     let turn = c_board.turn as i32 as f32;
     if !self.es.contains_key(&s) {
-      // ----------- 一時対応 ----------------------
-      let auto_resign = false;
+      let auto_resign = self_play;
       self.es.insert(s, c_board.game_ended(auto_resign, komi) as f32);
     }
     if self.es[&s] != 0.0 {
       // terminal node
-      // println!("game end {:?}", self.es[&s]);
-      // println!("{:}", c_board);
       return (-self.es[&s]*turn*2.0, None);
     }
     if !self.ns.contains_key(&s) {
@@ -341,7 +350,7 @@ impl MCTS {
       if for_train || prioritize_kill {
         valids = c_board.vec_valid_moves_for_train(c_board.turn);
       } else {
-        valids = c_board.vec_valid_moves(c_board.turn);
+        valids = c_board.vec_valid_moves_for_cpu(c_board.turn);
       }
       
       self.vs.insert(s, valids);
@@ -365,17 +374,21 @@ impl MCTS {
     let amax = c_board.action_size();
     let mut probs: Vec<f32> = vec![];
     let mut rng = rand::thread_rng();
+    let c_base = 2000;
+    let c_init = 1.25;
     for a in 0..amax {
       if !valids[a] { 
+        // 合法手のみに絞る
         probs.push(-10000000.0);
         continue;
       }
       let u: f32;
       let sa = &(s, a);
+      let c: f32 = ((1 + self.ns[&s]+c_base) as f32 / c_base as f32).log(2.7182818284) + c_init;
       if self.qsa.contains_key(sa) {
-        u = self.qsa[sa] + self.cpuct * (self.ps[&s][a] + 1e-32) * (self.ns[&s] as f32).sqrt() / (1 + self.nsa[sa]) as f32;
+        u = self.qsa[sa] + c * (self.ps[&s][a] + 1e-32) * (self.ns[&s] as f32).sqrt() / (1 + self.nsa[sa]) as f32;
       } else {
-        u = self.cpuct * (self.ps[&s][a] + 1e-32) * (self.ns[&s] as f32 + 1e-32).sqrt();
+        u = c * (self.ps[&s][a] + 1e-32) * (self.ns[&s] as f32 + 1e-32).sqrt();
       }
       //println!("u {:?}", u);
       // add noise
@@ -392,17 +405,17 @@ impl MCTS {
     }
     // 次の手を選ぶ
     let a: usize;
-    if self_play && c_board.step < c_board.size as u32 {
-      // 確率で次の手を選ぶ
-      let pmin = probs.iter().fold(f32::INFINITY, |m, v| v.min(m));
-      probs = probs.iter().map(|&p| if p==0.0 {0.0} else {p-pmin+1e-20}).collect(); // マイナスを許容しない
-      let rng = &mut rand::thread_rng();
-      let dist = WeightedIndex::new(&probs).unwrap();
-      a = dist.sample(rng);
-    } else {
+    // if self_play && c_board.step < c_board.size as u32 {
+    //   // 確率で次の手を選ぶ
+    //   let pmin = probs.iter().fold(f32::INFINITY, |m, v| v.min(m));
+    //   probs = probs.iter().map(|&p| if p==0.0 {0.0} else {p-pmin+1e-20}).collect(); // マイナスを許容しない
+    //   let rng = &mut rand::thread_rng();
+    //   let dist = WeightedIndex::new(&probs).unwrap();
+    //   a = dist.sample(rng);
+    // } else {
       // 最良の手を選ぶ
       a = max_idx(&probs);
-    }
+    // }
     // println!("probs {:?} {:?} {:?}", probs[27], probs[48], probs[49]);
     // if self.qsa.contains_key(&(s, 27)) {
     //   println!("wsa27 {:?} nsa27 {:?} qsa27 {:?}", self.wsa[&(s, 27)], self.nsa[&(s, 27)], self.qsa[&(s, 27)]);
@@ -418,7 +431,6 @@ impl MCTS {
 
     // play one step
     c_board.action(a as u32, c_board.turn);
-
     // maximum step
     if c_board.step > c_board.size as u32 * c_board.size as u32 * 2  {
       let score = c_board.count_diff();
@@ -434,7 +446,7 @@ impl MCTS {
     let (mut v, leaf) = self.search(c_board, nodes, prioritize_kill, for_train, self_play, komi);
     let mut win = v;
     if v < -5.0 {
-      // virtual lossは2減らす（1だとnsが増える効果を相殺しきれない）
+      // virtual loss
       win = -1.0;
     }
     //println!("a {:?} win {:?}", a, win);

@@ -48,7 +48,7 @@ pub struct MCTS {
   pub sim_num: u32,
   cpuct: f32,
   pub qsa: HashMap<(u64, usize), f32>, // Q values
-  nsa: HashMap<(u64, usize), u32>, // edge visited times
+  pub nsa: HashMap<(u64, usize), u32>, // edge visited times
   wsa: HashMap<(u64, usize), f32>, // win probability total
   ns: HashMap<u64, u32>, // board visited times
   pub ps: HashMap<u64, Vec<f32>>, // initial policy (returned by neural net)

@@ -157,26 +157,35 @@ impl Board {
     res[amax] = true; // pass
     res
   }
-  // CPU探索用の有効手
+  // 実際の有効手
   pub fn vec_valid_moves_for_search(&self, color: Turn) -> Vec<bool> {
-    let stones = self.valid_moves_for_train(color);
+    let stones = self.valid_moves_for_train(color, true);
     let amax = self.action_size() - 1;
     let mut res: Vec<bool> = vec![false; self.action_size()];
-    let mut true_cnt = 0;
     for i in 0..amax {
       let key = stones >> i as u128 & 1 == 1;
       res[i] = key;
-      if key {
-        true_cnt += 1;
-      }
     }
     // 常にパスできる
     res[amax] = true; // pass
     res
   }
-  // 学習初期で利用したい有効手
+  // CPU探索用の有効手
+  pub fn vec_valid_moves_for_cpu(&self, color: Turn) -> Vec<bool> {
+    let stones = self.valid_moves_for_train(color, false);
+    let amax = self.action_size() - 1;
+    let mut res: Vec<bool> = vec![false; self.action_size()];
+    for i in 0..amax {
+      let key = stones >> i as u128 & 1 == 1;
+      res[i] = key;
+    }
+    // 常にパスできる
+    res[amax] = true; // pass
+    res
+  }
+  // 学習で利用したい有効手
   pub fn vec_valid_moves_for_train(&self, color: Turn) -> Vec<bool> {
-    let stones = self.valid_moves_for_train(color);
+    let stones = self.valid_moves_for_train(color, true);
     let amax = self.action_size() - 1;
     let mut res: Vec<bool> = vec![false; self.action_size()];
     let mut true_cnt = 0;
@@ -193,7 +202,7 @@ impl Board {
     }
     res
   }
-  // 禁止はコウのみ
+  // 禁止はコウ
   pub fn valid_moves(&self, color: Turn) -> Stones {
     let s = self.size as usize;
     let bw = self.black | self.white;
@@ -211,7 +220,6 @@ impl Board {
 
     // find kou
     let mut kou = Stones::new(self.size);
-    let mut suicide = Stones::new(self.size);
     let mut st_try = op_surround_kuten;
     while st_try != 0 {
       // try adding stone where surrounded by stones
@@ -237,7 +245,7 @@ impl Board {
     valids
   }
   // 自殺手禁止、自分の目埋め禁止
-  pub fn valid_moves_for_train(&self, color: Turn) -> Stones {
+  pub fn valid_moves_for_train(&self, color: Turn, ignore_meume: bool) -> Stones {
     let s = self.size as usize;
     let bw = self.black | self.white;
     let st = self.stones(color);
@@ -246,20 +254,26 @@ impl Board {
     let opp_hist = self.opp_history(color);
     let kuten = self.mask(!bw);
     // kuten where surrounded by same color stones
-    let st_surround_kuten = kuten & (
-      (st >> 1 | self.edge(Dir::Right)) &
-      (st << 1 | self.edge(Dir::Left)) &
-      (st >> s as u128 | self.edge(Dir::Down)) &
-      (st << s as u128 | self.edge(Dir::Up)));
-    let op_surround_kuten = kuten & (
-      (op >> 1 | self.edge(Dir::Right)) &
-      (op << 1 | self.edge(Dir::Left)) &
-      (op >> s as u128 | self.edge(Dir::Down)) &
-      (op << s as u128 | self.edge(Dir::Up)));
-    let surround_kuten = st_surround_kuten | op_surround_kuten;
+    // let st_surround_kuten = kuten & (
+    //   (st >> 1 | self.edge(Dir::Right)) &
+    //   (st << 1 | self.edge(Dir::Left)) &
+    //   (st >> s as u128 | self.edge(Dir::Down)) &
+    //   (st << s as u128 | self.edge(Dir::Up)));
+    // let op_surround_kuten = kuten & (
+    //   (op >> 1 | self.edge(Dir::Right)) &
+    //   (op << 1 | self.edge(Dir::Left)) &
+    //   (op >> s as u128 | self.edge(Dir::Down)) &
+    //   (op << s as u128 | self.edge(Dir::Up)));
+    let surround_kuten = kuten & (
+      (bw >> 1 | self.edge(Dir::Right)) &
+      (bw << 1 | self.edge(Dir::Left)) &
+      (bw >> s as u128 | self.edge(Dir::Down)) &
+      (bw << s as u128 | self.edge(Dir::Up)));
 
     // ignore suicide
-    let mut st_try = op_surround_kuten;
+    let mut st_try = surround_kuten;
+    let mut suicide = Stones::new(self.size);
+    let mut kou = Stones::new(self.size);
     let mut dstone = Stones::new(self.size);
     while st_try != 0 {
       // try adding stone where surrounded by stones
@@ -267,22 +281,18 @@ impl Board {
       st_try = st_try ^ rbit; // remove right end bit
       // try st
       let new_try = st | rbit;
-      let ds = self.death_stones(op, new_try);
-      if hist.contains(&new_try) && opp_hist.contains(&(op ^ ds)) {
+      // 相手の死に石
+      let ds_op = self.death_stones(op, new_try);
+      if hist.contains(&new_try) && opp_hist.contains(&(op ^ ds_op)) {
         // kou
+        kou = kou | rbit;
         continue;
       }
-      dstone = dstone | ds;
-    }
-    let mut op_try = st_surround_kuten;
-    while op_try != 0 {
-      // try adding stone where surrounded by stones
-      let rbit = op_try & ((!op_try) + 1);
-      op_try = op_try ^ rbit; // remove right end bit
-      // try op
-      let new_try = op | rbit;
-      let ds = self.death_stones(st, new_try);
-      dstone = dstone | ds;
+      dstone = dstone | ds_op; // 相手の石が取れれば合法
+      // 自分の死に石
+      let ds_st = self.death_stones(new_try, op);
+      // 自殺手禁止
+      suicide = suicide | (ds_st & rbit);
     }
     // valid if any of the beside stone died
     let dbeside = surround_kuten & (
@@ -290,7 +300,12 @@ impl Board {
       (dstone << 1 & !self.edge(Dir::Left)) |
       (dstone >> s as u128 & !self.edge(Dir::Down)) |
       (dstone << s as u128 & !self.edge(Dir::Up)));
-    let valids = (kuten & !surround_kuten) | dbeside;
+    let valids;
+    if ignore_meume {
+      valids = (kuten & !surround_kuten) | dbeside;
+    } else {
+      valids = (kuten & !suicide & !kou) | dbeside;
+    }
     valids
   }
   pub fn kill_point(&self, color: Turn) -> Stones {
@@ -346,7 +361,7 @@ impl Board {
   pub fn game_ended(&self, auto_resign: bool, komi: i32) -> i8 {
     let s = self.size().pow(2);
     let diff = self.count_diff();
-    if self.pass_cnt >= 2 || (auto_resign && diff.abs() >= s as i32 / 2) || self.step >= s * 3 + 5{
+    if self.pass_cnt >= 2 || (auto_resign && diff.abs() >= s as i32) || self.step >= s * 3 + 5{
       if diff > komi { return 1; }
       return -1;
     }

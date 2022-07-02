@@ -53,7 +53,7 @@ mod board {
        oo---\n\
        oo-o-\n"
     );
-    let v = board.valid_moves_for_train(w);
+    let v = board.valid_moves_for_train(w, false);
     assert_eq!(
       format!("{}", v),
       "--o--\n\
@@ -95,6 +95,7 @@ mod board {
     let tw = Stones::new32(0b01010_10101_00010_00000_00000);
     board.set_stones(b, tb);
     board.set_stones(w, tw);
+    println!("{:}", board);
     assert_eq!(
       format!("{}", board),
       "012345\n\
@@ -113,7 +114,8 @@ mod board {
        -o-o-\n\
        o-o-o\n"
     );
-    let v = board.valid_moves_for_train(w);
+    let v = board.valid_moves_for_train(w, true);
+    // 自分の目埋めるの禁止
     assert_eq!(
       format!("{}", v),
       "ooooo\n\
@@ -150,7 +152,7 @@ mod board {
        ---o-\n\
        -----\n"
     );
-    let v = board.valid_moves_for_train(w);
+    let v = board.valid_moves_for_train(w, false);
     assert_eq!(
       format!("{}", v),
       "ooooo\n\
@@ -174,11 +176,57 @@ mod board {
       v,
       vec![
         false, false, true, false, false,
-        false, false, false, false, true,
+        false, false, false, false, false,
         false, false, false, false, false,
         true, true, false, false, false,
         true, true, false, true, false,
         false
+      ]
+    );
+  }
+  #[test]
+  fn vec_valid_moves_cpu_5x5() {
+    let mut board = Board::new(BoardSize::S5);
+    let b = Turn::Black;
+    let w = Turn::White;
+    let tb = Stones::new32(0b10100_01010_00010_00101_01010);
+    let tw = Stones::new32(0b00000_10100_11101_01000_10000);
+    board.set_stones(b, tb);
+    board.set_stones(w, tw);
+    let v = board.vec_valid_moves_for_cpu(w);
+    assert_eq!(
+      v,
+      vec![
+        false, false, true, false, false,
+        false, false, false, false, false,
+        false, false, false, false, false,
+        true, false, false, false, false,
+        true, true, false, true, false,
+        true
+      ]
+    );
+  }
+  #[test]
+  fn vec_valid_moves_cpu_5x5_suicide() {
+    let mut board = Board::new(BoardSize::S5);
+    let b = Turn::Black;
+    let w = Turn::White;
+    let tb = Stones::new32(0b00100_11100_00000_00000_00000);
+    let tw = Stones::new32(0b01000_00000_00000_00000_00000);
+    board.set_stones(b, tb);
+    board.set_stones(w, tw);
+    let v = board.vec_valid_moves_for_cpu(w);
+    println!("{:}", board);
+    println!("{:?}", v);
+    assert_eq!(
+      v,
+      vec![
+        true, true, true, true, true,
+        true, true, true, true, true,
+        true, true, true, true, true,
+        true, true, false, false, false,
+        true, true, false, false, false,
+        true
       ]
     );
   }
@@ -194,7 +242,7 @@ mod board {
 
     board.action_xy(5, 5, w);
     println!("{}", board);
-    let v = board.valid_moves_for_train(b);
+    let v = board.valid_moves_for_train(b, false);
     assert_eq!(
       format!("{}", v),
       "ooooo\n\
@@ -204,7 +252,7 @@ mod board {
        oo---\n"
     );
     board.action_xy(1, 1, b);
-    let v = board.valid_moves_for_train(b);
+    let v = board.valid_moves_for_train(b, false);
     assert_eq!(
       format!("{}", v),
       "-oooo\n\

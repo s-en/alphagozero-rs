@@ -70,9 +70,11 @@ pub async fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cn
   //   // }
   // }
   let mut pi = mcts.get_action_prob_async(&board, temp, &predict, prioritize_kill, for_train, self_play, komi).await;
+  let s = board.calc_hash();
+  // let valids = board.vec_valid_moves_for_cpu(board.turn);
+  // let mut masked_pi: Vec<f32> = valids.iter().enumerate().map(|(i, x)| *x as i32 as f32 * pi[i]).collect();
   //panic!("pi {:?}", pi);
   let best_action = max_idx(&pi);
-  let s = board.calc_hash();
   let sa = (s, best_action);
   if mcts.qsa.contains_key(&sa) {
     pi.push(mcts.qsa[&sa]);
