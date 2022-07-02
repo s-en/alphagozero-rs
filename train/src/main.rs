@@ -1,8 +1,8 @@
 // extern crate tch;
-use tch::nn;
 use rand::prelude::*;
 use std::collections::VecDeque;
 use az_game::igo::*;
+use tch::{nn, Tensor, IValue, Device, nn::OptimizerConfig};
 
 extern crate savefile;
 #[macro_use]
@@ -65,9 +65,80 @@ fn main() {
   let mut coach = Coach {
     board_size: bsize,
     action_size: bsize*bsize+1,
-    num_channels: 32,
+    num_channels: 8,
   };
   coach.learn();
+  return;
+
+  // let vs = nn::VarStore::new(Device::cuda_if_available());
+  // let mut model = TrainableCModule::load(
+  //   "7x7/dualnet7x7_4conv.pt", vs.root()
+  // ).expect("failed loading deualnet trainable model");
+  
+  // let epochs: i32 = 1000;
+  // let lr:f64 = 1e-5;
+  // let mut rnd = rand::thread_rng();
+  // let mut optimizer = nn::Adam::default().build(&vs, lr).unwrap();
+  // fn make(n1:f32, n2:f32) -> Vec<f32> {
+  //   let mut b = vec![0.0; 12*49];
+  //   b[0] = n1;
+  //   b[1] = n2;
+  //   return b;
+  // }
+  // for i in 0..epochs {
+  //   let mut ex_board: Vec<Vec<f32>> = Vec::new();
+  //   let mut ex_vs: Vec<Vec<f32>> = Vec::new();
+  //   for _ in 0..128 {
+  //     let r = rnd.gen_range(0, 4) as usize;
+  //     let mut b = vec![0.0; 12*49];
+  //     if r == 0 {
+  //       ex_board.push(make(0.0, 0.0));
+  //       ex_vs.push(vec![0.0]);
+  //     } else if r == 1 {
+  //       ex_board.push(make(1.0, 0.0));
+  //       ex_vs.push(vec![1.0]);
+  //     } else if r == 2 {
+  //       ex_board.push(make(0.0, 1.0));
+  //       ex_vs.push(vec![1.0]);
+  //     } else {
+  //       ex_board.push(make(1.0, 1.0));
+  //       ex_vs.push(vec![0.0]);
+  //     }
+  //   }
+
+  //   let boards = Tensor::of_slice2(&ex_board).to_device(vs.device()).reshape(&[-1, 12, 7, 7]);
+  //   let target_vs = Tensor::of_slice2(&ex_vs).to_device(vs.device());
+  //   let output = model.forward_is(&[IValue::from(boards)]).unwrap();
+  //   let (out_pi, out_v) = match output {
+  //     IValue::Tuple(ivalues) => match &ivalues[..] {
+  //       [IValue::Tensor(t1), IValue::Tensor(t2)] => (t1.shallow_clone(), t2.shallow_clone()),
+  //       _ => panic!("unexpected output {:?}", ivalues),
+  //     },
+  //     _ => panic!("unexpected output {:?}", output),
+  //   };
+  //   let l_v = &out_v.mse_loss(&target_vs, tch::Reduction::Mean);
+  //   if i % 100 == 0 {
+  //     println!("loss {:?}", l_v);
+  //   }
+  //   optimizer.backward_step(&l_v);
+  // }
+  // let mut ex_board: Vec<Vec<f32>> = Vec::new();
+  // ex_board.push(make(0.0, 0.0));
+  // ex_board.push(make(0.0, 1.0));
+  // ex_board.push(make(1.0, 0.0));
+  // ex_board.push(make(1.0, 1.0));
+  // let boards = Tensor::of_slice2(&ex_board).to_device(vs.device()).reshape(&[-1, 12, 7, 7]);
+  // let output = model.forward_is(&[IValue::from(boards)]).unwrap();
+  // let (out_pi, out_v) = match output {
+  //   IValue::Tuple(ivalues) => match &ivalues[..] {
+  //     [IValue::Tensor(t1), IValue::Tensor(t2)] => (t1.shallow_clone(), t2.shallow_clone()),
+  //     _ => panic!("unexpected output {:?}", ivalues),
+  //   },
+  //   _ => panic!("unexpected output {:?}", output),
+  // };
+  // out_v.print();
+  
+  // return;
 
   // vの確認
   // let board_size: i64 = 7;
@@ -94,7 +165,7 @@ fn main() {
   let action_size: i64 = 50;
   let num_channels: i64 = 32;
   let mut net = NNet::new(board_size, action_size, num_channels);
-  net.load_trainable("7x7/temptest.pt");
+  net.load_trainable("7x7/dualnet7x7_4conv.pt");
   //let mut examples = Vec::new();
   let predict32 = |inputs: Vec<Vec<f32>>| {
     NNet::predict32(&net, inputs)
@@ -102,26 +173,65 @@ fn main() {
   let mut board = Board::new(BoardSize::S7);
   // let tb = Stones::new64(0b0000000_0000000_0000000_0000000_0000000_0000000_0000000);
   // let tw = Stones::new64(0b1111111_1101111_1000111_1101111_1111111_1111111_1111111);
-  let tb = Stones::new64(0b0000000_1000000_1100000_0111000_0100111_0000101_0001110);
-  let tw = Stones::new64(0b1100000_0110000_0011111_0000100_0011000_0101000_0000000);
+  let tb = Stones::new64(0b0000000_0000000_0000000_0000000_1111111_0000000_1111010);
+  let tw = Stones::new64(0b1101111_1111111_1111111_1111111_0000000_0000000_0000000);
+  // // let tb = Stones::new64(0b0000000_1000000_1100000_0111000_0100111_0000101_0001110);
+  // // let tw = Stones::new64(0b1100000_0110000_0011111_0000100_0011000_0101000_0000000);
   board.set_stones(Turn::Black, tb);
   board.set_stones(Turn::White, tw);
-  board.turn = Turn::White;
-  //board.action(24, board.turn);
+  // board.turn = Turn::Black; board.pass_cnt = 0;
+  // let pi = NNet::predict(&net, board.input());
+  // println!("pi 1 0 = {:?}", pi);
+  // board.turn = Turn::White; board.pass_cnt = 0;
+  // let pi = NNet::predict(&net, board.input());
+  // println!("pi 0 0 = {:?}", pi);
+  // board.turn = Turn::Black; board.pass_cnt = 1;
+  // let pi = NNet::predict(&net, board.input());
+  // println!("pi 1 1 = {:?}", pi);
+  // board.turn = Turn::White; board.pass_cnt = 1;
+  // let pi = NNet::predict(&net, board.input());
+  // println!("pi 0 1 = {:?}", pi);
+
+  // board.action(42, board.turn);
+  // board.action(29, board.turn);
   // board.action(3, board.turn);
-  // board.action(6, board.turn);
-  //board.action(49, board.turn);
-  let pi = NNet::predict(&net, board.input());
-  // let pi = NNet::predict32(&net, vec![vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49]]);
-  println!("pi {:?}", pi);
-  //let valids = board.vec_valid_moves_for_train(board.turn);
-  println!("{:}", board);
+  // board.action(1, board.turn);
+  // board.action(18, board.turn);
+  // board.action(27, board.turn);
+  // let pi = NNet::predict(&net, board.input());
+  // // let pi = NNet::predict32(&net, vec![vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49],vec![0.0; 12*49]]);
+  // println!("pi {:?}", pi);
+  // //let valids = board.vec_valid_moves_for_train(board.turn);
+  // println!("{:}", board);
   //println!("{:?}", valids);
 
-  let mut mcts = MCTS::new(200, 1.0);
-  let mut probs: Vec<f32> = mcts.get_action_prob(&board, 0.2, &predict32, false, false, false, 0);//board.vec_valid_moves(board.turn).iter().map(|&x| x as i32 as f32).collect();
+  println!("{}", board);
+  let mut mcts = MCTS::new(100, 1.0);
+  board.turn = Turn::Black;
+  let mut probs: Vec<f32> = mcts.get_action_prob(&board, 0.2, &predict32, false, true, false, 0);//board.vec_valid_moves(board.turn).iter().map(|&x| x as i32 as f32).collect();
   println!("probs {:?}", probs);
-  println!("probs11 {:?}", probs[11]);
+  return;
+  // println!("probs11 {:?}", probs[11]);
+
+  // let pi = NNet::predict(&net, board.input());
+  // println!("pi start= {:?}", pi);
+  // let mut b2 = board.clone();
+  // board.action(46, board.turn);
+  // println!("{}", board);
+  // let pi = NNet::predict(&net, board.input());
+  // println!("pi after= {:?}", pi);
+
+  // b2.action(2, b2.turn);
+  // println!("{}", b2);
+  // let pi = NNet::predict(&net, b2.input());
+  // println!("pi after2= {:?}", pi);
+  // let mut probs: Vec<f32> = mcts.get_action_prob(&b2, 0.2, &predict32, false, false, false, 0);//board.vec_valid_moves(board.turn).iter().map(|&x| x as i32 as f32).collect();
+  // println!("probs {:?}", probs);
+
+  // b2.action(0, b2.turn);
+  // println!("{}", b2);
+  // let pi = NNet::predict(&net, b2.input());
+  // println!("pi after3= {:?}", pi);
 
   // board.action(49, Turn::Black);
   // board.action(48, Turn::White);
