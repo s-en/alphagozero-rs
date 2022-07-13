@@ -63,12 +63,21 @@ pub async fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cn
   let self_play = false;
   let prioritize_kill = false;
   let mut komi = -1;
-  // if board_size == 7 {
-  //   temp = 0.5;
-  //   // if board.black.count_ones() < 4 {
-  //   //   temp = 1.0;
-  //   // }
-  // }
+  if board_size == 7 {
+    temp = 0.1;
+  }
+  let stoneCnt = stones.to_vec().iter().fold(0.0, |sum, a| sum + a.abs());
+  if stoneCnt < 2.0 {
+    // 最初の２手は分散大きく
+    temp = 0.4;
+  }
+  if stoneCnt > board_size.value_of() as f32 * 2.0 {
+    // 後半は分散小さく
+    temp = 0.1;
+    if stoneCnt > board_size.value_of() as f32 * 4.0 {
+      temp = 0.0;
+    }
+  }
   let mut pi = mcts.get_action_prob_async(&board, temp, &predict, prioritize_kill, for_train, self_play, komi).await;
   let s = board.calc_hash();
   // let valids = board.vec_valid_moves_for_cpu(board.turn);

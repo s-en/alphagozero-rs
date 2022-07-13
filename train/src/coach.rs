@@ -14,7 +14,7 @@ extern crate savefile;
 const KOMI: i32 = 0;
 const BOARD_SIZE: BoardSize = BoardSize::S7;
 const TRAINED_MODEL: &str = "7x7/trained";
-const BEST_MODEL: &str = "7x7/dualnet7x7_4conv_dep16.pt";
+const BEST_MODEL: &str = "7x7/dualnet7x7_8conv.pt";//"7x7/dualnet7x7_4conv_dep16.pt";
 const MAX_EXAMPLES: usize = 2000000;
 const FOR_TRAIN: bool = false;
 
@@ -33,7 +33,7 @@ fn self_play_sim(
     let mut each_mcts = MCTS::duplicate(&mcts);
     thread::spawn(move || {
       thread::sleep(time::Duration::from_millis(i as u64 * 500));
-      // println!("self_play_sim {:?}", i);
+      println!("self_play_sim {:?}", i);
       let examples = self_play(board_size, action_size, num_channels, num_eps, &mut each_mcts);
       tx1.send(examples).unwrap();
     });
@@ -116,7 +116,7 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
   let predict32 = |inputs: Vec<Vec<f32>>| {
     NNet::predict32(net, inputs)
   };
-  let for_train = eps_cnt%3 != 0;//FOR_TRAIN;
+  let for_train = eps_cnt%2 != 0;//FOR_TRAIN;
   let prioritize_kill = false;
   let self_play = false;
   let stemp = mcts.sim_num;
@@ -131,9 +131,9 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
     // }
     let mstep = BOARD_SIZE as i32 * 3;
     if episode_step == 1 {
-      temp = 1.0;
+      temp = 3.0;
     } else if episode_step <= mstep {
-      temp = (1.0 - (episode_step as f32 / mstep as f32)) * 0.3 + 0.1;
+      temp = (1.0 - (episode_step as f32 / mstep as f32)) * 2.0 + 0.1;
     } else {
       temp = 0.1;
     }
@@ -141,13 +141,19 @@ fn execute_episode(rng: &mut ThreadRng, mcts: &mut MCTS, net: &NNet, eps_cnt: i3
     // let mstart = Instant::now();
     let turn = board.turn;
     let mut pi: Vec<f32>;
-    if episode_step == 1 && eps_cnt % 1 == 0 {
-      // 初手天元縛り
-      pi = vec![0.0; 50];
-      pi[24] = 1.0;
-    } else {
+    // if episode_step == 1 && eps_cnt % 1 == 0 {
+    //   // 初手天元縛り
+    //   pi = vec![0.0; 50];
+    //   // pi[24] = 1.0;
+    //   // 初手ランダム
+    //   let random_int: usize = rng.gen_range(0, BOARD_SIZE as usize * BOARD_SIZE as usize);
+    //   pi[random_int] = 1.0;
+    // } else if rng.gen_range(0,50) == 0 {
+    //   // たまにランダムムーブ
+    //   pi = board.vec_valid_moves_for_search(board.turn).iter().map(|&m| m as i32 as f32).collect();
+    // } else {
       pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
-    }
+    // }
 
     //let mut pi = mcts.get_action_prob(&board, temp, &predict32, prioritize_kill, for_train, self_play, KOMI);
     // let mend = mstart.elapsed();
@@ -592,12 +598,12 @@ impl Coach {
       //     tex.extend(pass_data());
       //   }
       // }
-      let mut mcts_sim_num = 100;
+      let mut mcts_sim_num = 200;
       let mut root_mcts = MCTS::new(mcts_sim_num, 1.0);
       self_play_sim(&mut sp_ex, board_size, action_size, num_channels, 14, 64, &mut root_mcts);
 
       println!("start training... round:{}", i);
-      let lr = 5e-5;
+      let lr = 8e-5;
       // let mut mcts_sim_num: u32 = 200 + i*3;
       // if mcts_sim_num > 300 {
       //   mcts_sim_num = 300;

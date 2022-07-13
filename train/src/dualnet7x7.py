@@ -82,10 +82,7 @@ class DualNet(nn.Module):
         x = self.layers(x)
         pi = self.pi(x).exp()
         v = self.v(x).tanh()
-        res = torch.cat((pi, v), 1)
-        print(res.shape)
-
-        return res
+        return pi, v
     
     def _make_layer(self, block, c_in, c_out, blocks, stride=1):
         layers = []

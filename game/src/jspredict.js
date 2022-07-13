@@ -64,8 +64,8 @@ export async function jspredict(inputs) {
   };
   let result = await nnet.run(feeds);
   // console.log(result[279].data);
-  const pi = [...result[74].data].slice(0, (BSIZE * BSIZE + 1) * len);
-  const v = [...result[75].data].slice(0, len);
+  const pi = [...result[130].data].slice(0, (BSIZE * BSIZE + 1) * len);
+  const v = [...result[131].data].slice(0, len);
   let resp = [];
   const piSize = BSIZE * BSIZE + 1;
   for(let i=0; i<len; i++) {
