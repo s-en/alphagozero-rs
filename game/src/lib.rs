@@ -64,7 +64,7 @@ pub async fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cn
   let prioritize_kill = false;
   let mut komi = -1;
   if board_size == 7 {
-    temp = 0.1;
+    temp = 0.2;
   }
   let stoneCnt = stones.to_vec().iter().fold(0.0, |sum, a| sum + a.abs());
   if stoneCnt < 2.0 {
