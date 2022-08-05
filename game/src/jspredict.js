@@ -11,6 +11,11 @@ let LV = 2;
   if(size && ['5', '7'].includes(size)){
     BSIZE = Number(size);
   }
+  const lv = urlParams.get('lv');
+  if(lv && ['2', '3'].includes(lv)){
+    LV = Number(lv);
+  }
+  console.log(`p loading lv ${LV}`);
   if(ort){
     window.jspredictError = false;
     let status = 0;
@@ -63,9 +68,15 @@ export async function jspredict(inputs) {
     's.1': tensorA
   };
   let result = await nnet.run(feeds);
-  // console.log(result[279].data);
-  const pi = [...result[130].data].slice(0, (BSIZE * BSIZE + 1) * len);
-  const v = [...result[131].data].slice(0, len);
+  // console.log(result);
+  let pi, v;
+  if(LV === 2) {
+    pi = [...result[130].data].slice(0, (BSIZE * BSIZE + 1) * len);
+    v = [...result[131].data].slice(0, len);
+  } else if (LV === 3) {
+    pi = [...result[242].data].slice(0, (BSIZE * BSIZE + 1) * len);
+    v = [...result[243].data].slice(0, len);
+  }
   let resp = [];
   const piSize = BSIZE * BSIZE + 1;
   for(let i=0; i<len; i++) {

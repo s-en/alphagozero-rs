@@ -182,7 +182,7 @@ impl NNet {
     let mut optimizer = nn::Adam::default().build(&self.vs, lr)?;
     // let mut optimizer = nn::Sgd::default().build(&self.vs, lr)?;
     let batch_size: usize = 8;
-    let epochs: i32 = 100000;
+    let epochs: i32 = 50000;//100000;
     let chunk_size = cmp::max(examples.len() * 4 / 5, examples.len() - 10240);
     let mut chunks: Vec<&[&Example]> = examples.chunks(chunk_size).map(|c| c.into()).collect();
     let train_examples = chunks[0];

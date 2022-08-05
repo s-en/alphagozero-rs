@@ -42,7 +42,7 @@ pub fn max_idx(vals: &Vec<f32>) -> usize {
 }
 
 #[wasm_bindgen]
-pub async fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, sim_num: u32) -> Float32Array {
+pub async fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cnt: Number, sim_num: u32, temp_lv: f32) -> Float32Array {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   let board = get_board(&board_size, &stones, &turn, &pass_cnt);
   let mut mcts = MCTS::new(sim_num, 1.0); // reset search tree
@@ -58,26 +58,11 @@ pub async fn run(board_size: Number, stones: Float32Array, turn: Number, pass_cn
     let jsoutput:Float32Array = wasm_bindgen_futures::JsFuture::from(promise).await.unwrap().into();
     rspredict(jsoutput, len, asize)
   }
-  let mut temp = 0.2;
+  let mut temp = temp_lv;//0.2;
   let for_train = false;
   let self_play = false;
   let prioritize_kill = false;
   let mut komi = -1;
-  if board_size == 7 {
-    temp = 0.2;
-  }
-  let stoneCnt = stones.to_vec().iter().fold(0.0, |sum, a| sum + a.abs());
-  if stoneCnt < 2.0 {
-    // 最初の２手は分散大きく
-    temp = 0.4;
-  }
-  if stoneCnt > board_size.value_of() as f32 * 2.0 {
-    // 後半は分散小さく
-    temp = 0.1;
-    if stoneCnt > board_size.value_of() as f32 * 4.0 {
-      temp = 0.0;
-    }
-  }
   let mut pi = mcts.get_action_prob_async(&board, temp, &predict, prioritize_kill, for_train, self_play, komi).await;
   let s = board.calc_hash();
   // let valids = board.vec_valid_moves_for_cpu(board.turn);

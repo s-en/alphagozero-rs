@@ -375,7 +375,6 @@ impl MCTS {
     let mut probs: Vec<f32> = vec![];
     let mut rng = rand::thread_rng();
     let c_base = 2000;
-    let c_init = 1.25;
     for a in 0..amax {
       if !valids[a] { 
         // 合法手のみに絞る
@@ -384,7 +383,7 @@ impl MCTS {
       }
       let u: f32;
       let sa = &(s, a);
-      let c: f32 = ((1 + self.ns[&s]+c_base) as f32 / c_base as f32).log(2.7182818284) + c_init;
+      let c: f32 = ((1 + self.ns[&s]+c_base) as f32 / c_base as f32).log(2.7182818284) + self.cpuct;
       if self.qsa.contains_key(sa) {
         u = self.qsa[sa] + c * (self.ps[&s][a] + 1e-32) * (self.ns[&s] as f32).sqrt() / (1 + self.nsa[sa]) as f32;
       } else {
